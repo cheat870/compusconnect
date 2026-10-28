@@ -1,0 +1,24 @@
+{
+  "name": "campusconnect-mvp",
+  "version": "1.0.0",
+  "description": "CampusConnect Multi-University Platform - Royal University of Phnom Penh (RUPP) Pilot",
+  "scripts": {
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:backend": "npm --prefix backend run build",
+    "build:frontend": "npm --prefix frontend run build",
+    "test": "npm --prefix backend test",
+    "migrate": "npm --prefix backend run migrate",
+    "seed": "npm --prefix backend run seed"
+  },
+  "keywords": [
+    "campusconnect",
+    "rupp",
+    "cambodia",
+    "university-portal",
+    "leaflet",
+    "multi-tenant"
+  ],
+  "author": "CampusConnect Team",
+  "license": "ISC"
+}

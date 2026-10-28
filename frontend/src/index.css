@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply text-slate-800 bg-slate-50 min-h-screen flex flex-col;
+  }
+}
+
+/* Custom leaflet map popup styling */
+.leaflet-popup-content-wrapper {
+  @apply rounded-xl shadow-xl p-0 overflow-hidden border border-slate-200;
+}
+.leaflet-popup-content {
+  margin: 0 !important;
+  line-height: 1.5;
+}
