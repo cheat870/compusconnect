@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import L from 'leaflet';
 import { useLanguage } from '../i18n/context.js';
 import {
@@ -22,7 +22,11 @@ import {
   FlaskConical,
   Building,
   Landmark,
-  Layers
+  Layers,
+  LocateFixed,
+  Radio,
+  Loader2,
+  Info
 } from 'lucide-react';
 
 interface Building {
@@ -62,6 +66,19 @@ interface Campus {
   longitude: number | string;
 }
 
+interface UserLocation {
+  lat: number;
+  lng: number;
+  accuracy: number;
+  timestamp: number;
+}
+
+interface LocationError {
+  code?: number;
+  message: string;
+  type: 'denied' | 'unavailable' | 'timeout' | 'unsupported' | 'general';
+}
+
 interface CampusMapProps {
   campuses: Campus[];
   selectedCampusId: number;
@@ -85,12 +102,23 @@ export const CampusMap: React.FC<CampusMapProps> = ({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const userLocationLayerRef = useRef<L.LayerGroup | null>(null);
+  const userMarkerRef = useRef<L.Marker | null>(null);
+  const userCircleRef = useRef<L.Circle | null>(null);
   const buildingMarkersMapRef = useRef<Map<number, L.Marker>>(new Map());
+  const watchIdRef = useRef<number | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedBuildingId, setSelectedBuildingId] = useState<number | null>(activeBuildingId || null);
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState<boolean>(true);
+
+  // Real-time Geolocation States
+  const [userCoords, setUserCoords] = useState<UserLocation | null>(null);
+  const [locationStatus, setLocationStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [locationError, setLocationError] = useState<LocationError | null>(null);
+  const [isFollowingLocation, setIsFollowingLocation] = useState<boolean>(false);
+  const [showPrivacyNotice, setShowPrivacyNotice] = useState<boolean>(false);
 
   const currentCampus = campuses.find((c) => c.id === selectedCampusId) || campuses[0];
 
@@ -105,7 +133,7 @@ export const CampusMap: React.FC<CampusMapProps> = ({
       const map = L.map(mapContainerRef.current, {
         center: [initialLat, initialLng],
         zoom: 17,
-        zoomControl: false, // Custom zoom buttons in UI
+        zoomControl: false, // Custom zoom controls in UI
       });
 
       // Configurable OpenStreetMap Tile Provider
@@ -114,13 +142,22 @@ export const CampusMap: React.FC<CampusMapProps> = ({
         maxZoom: 19,
       }).addTo(map);
 
+      // Separate layers for campus facilities and user location
       const markersGroup = L.layerGroup().addTo(map);
       markersLayerRef.current = markersGroup;
+
+      const userGroup = L.layerGroup().addTo(map);
+      userLocationLayerRef.current = userGroup;
+
       mapInstanceRef.current = map;
     }
 
     return () => {
-      // Map cleanup
+      // Clear geolocation watcher if active
+      if (watchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
     };
   }, []);
 
@@ -142,6 +179,16 @@ export const CampusMap: React.FC<CampusMapProps> = ({
       focusBuilding(activeBuildingId);
     }
   }, [activeBuildingId]);
+
+  // Clean up watcher on unmount
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
+  }, []);
 
   // Calculate facility category counts dynamically
   const categoryCounts = useMemo(() => {
@@ -214,28 +261,28 @@ export const CampusMap: React.FC<CampusMapProps> = ({
       const isSelected = selectedBuildingId === b.id;
 
       // Color coding & icons per category
-      let categoryColor = '#3b82f6'; // blue default
+      let categoryColor = '#3b82f6';
       let iconSymbol = '🏢';
       if (b.category === 'library') {
-        categoryColor = '#059669'; // emerald
+        categoryColor = '#059669';
         iconSymbol = '📚';
       } else if (b.category === 'cooperation_center') {
-        categoryColor = '#7c3aed'; // purple
+        categoryColor = '#7c3aed';
         iconSymbol = '🤝';
       } else if (b.category === 'lab') {
-        categoryColor = '#d97706'; // amber
+        categoryColor = '#d97706';
         iconSymbol = '🔬';
       } else if (b.category === 'canteen') {
-        categoryColor = '#ea580c'; // orange
+        categoryColor = '#ea580c';
         iconSymbol = '🍲';
       } else if (b.category === 'parking') {
-        categoryColor = '#475569'; // slate
+        categoryColor = '#475569';
         iconSymbol = '🅿️';
       } else if (b.category === 'administrative') {
-        categoryColor = '#0f766e'; // teal
+        categoryColor = '#0f766e';
         iconSymbol = '🏛️';
       } else if (b.category === 'sports') {
-        categoryColor = '#dc2626'; // red
+        categoryColor = '#dc2626';
         iconSymbol = '⚽';
       }
 
@@ -337,7 +384,196 @@ export const CampusMap: React.FC<CampusMapProps> = ({
     });
   }, [filteredBuildings, events, selectedCampusId, language, selectedBuildingId]);
 
-  // Bi-directional interaction: Clicking facility card centers map and opens its popup
+  // Update User Location Marker and Accuracy Circle on Leaflet Map
+  const updateUserLocationOnMap = useCallback((lat: number, lng: number, accuracy: number, shouldPan: boolean = false) => {
+    if (!mapInstanceRef.current || !userLocationLayerRef.current) return;
+
+    // Distinct blue dot marker with animated outer pulse and crisp white ring
+    const userIcon = L.divIcon({
+      className: 'user-location-marker',
+      html: `
+        <div class="relative flex items-center justify-center">
+          <div class="absolute w-8 h-8 rounded-full bg-blue-500/30 animate-ping"></div>
+          <div class="relative w-4 h-4 rounded-full bg-blue-600 border-2 border-white shadow-xl ring-2 ring-blue-400"></div>
+        </div>
+      `,
+      iconSize: [32, 32],
+      iconAnchor: [16, 16],
+    });
+
+    const accuracyMeters = Math.round(accuracy);
+    const popupContent = `
+      <div class="p-3 text-slate-800 font-sans max-w-xs">
+        <div class="flex items-center gap-1.5 mb-1">
+          <span class="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse"></span>
+          <span class="text-[10px] font-black uppercase tracking-wider text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+            ${t.map.myLocation}
+          </span>
+        </div>
+        <h4 class="font-bold text-sm text-slate-900">${t.map.locationFound}</h4>
+        <div class="mt-2 space-y-0.5 text-xs text-slate-600 font-medium">
+          <div>${t.map.locationAccuracy}: <span class="font-mono font-bold text-slate-800">±${accuracyMeters} ${t.map.meters}</span></div>
+          <div class="font-mono text-[10px] text-slate-400 pt-0.5">GPS: ${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
+        </div>
+        <p class="text-[10px] text-slate-400 mt-2.5 pt-2 border-t border-slate-100 italic leading-snug">
+          ${t.map.locationPrivacyNotice}
+        </p>
+      </div>
+    `;
+
+    if (userMarkerRef.current && userCircleRef.current) {
+      // Update existing marker and accuracy circle seamlessly
+      userMarkerRef.current.setLatLng([lat, lng]);
+      userMarkerRef.current.setPopupContent(popupContent);
+      userCircleRef.current.setLatLng([lat, lng]);
+      userCircleRef.current.setRadius(accuracy);
+    } else {
+      // Create new circle and marker
+      const circle = L.circle([lat, lng], {
+        radius: accuracy,
+        color: '#2563eb',
+        weight: 1.5,
+        opacity: 0.85,
+        fillColor: '#3b82f6',
+        fillOpacity: 0.15,
+        dashArray: '4, 4',
+      });
+
+      const marker = L.marker([lat, lng], {
+        icon: userIcon,
+        zIndexOffset: 2000, // Ensure location sits on top of facility pins
+      }).bindPopup(popupContent);
+
+      userLocationLayerRef.current.clearLayers();
+      userLocationLayerRef.current.addLayer(circle);
+      userLocationLayerRef.current.addLayer(marker);
+
+      userMarkerRef.current = marker;
+      userCircleRef.current = circle;
+    }
+
+    if (shouldPan && mapInstanceRef.current) {
+      const currentZoom = mapInstanceRef.current.getZoom();
+      const targetZoom = Math.max(currentZoom, 17);
+      mapInstanceRef.current.setView([lat, lng], targetZoom, { animate: true });
+    }
+  }, [t.map, language]);
+
+  // Handle Geolocation Errors Gracefully
+  const handleLocationError = useCallback((err: GeolocationPositionError) => {
+    let type: 'denied' | 'unavailable' | 'timeout' | 'general' = 'general';
+    let message = t.map.locationUnavailable;
+
+    if (err.code === 1) { // PERMISSION_DENIED
+      type = 'denied';
+      message = t.map.locationPermissionDenied;
+    } else if (err.code === 2) { // POSITION_UNAVAILABLE
+      type = 'unavailable';
+      message = t.map.locationUnavailable;
+    } else if (err.code === 3) { // TIMEOUT
+      type = 'timeout';
+      message = t.map.locationTimeout;
+    }
+
+    setLocationStatus('error');
+    setLocationError({ code: err.code, message, type });
+  }, [t.map]);
+
+  // Stop Watching Location Helper
+  const stopWatchingLocation = useCallback(() => {
+    if (watchIdRef.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+  }, []);
+
+  // Request Current Location (One-time check)
+  const handleGetLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationStatus('error');
+      setLocationError({ type: 'unsupported', message: t.map.locationUnsupported });
+      return;
+    }
+
+    setLocationStatus('loading');
+    setLocationError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        const newCoords: UserLocation = {
+          lat: latitude,
+          lng: longitude,
+          accuracy,
+          timestamp: pos.timestamp,
+        };
+        setUserCoords(newCoords);
+        setLocationStatus('success');
+        updateUserLocationOnMap(latitude, longitude, accuracy, true);
+
+        // Open popup automatically on first location capture
+        if (userMarkerRef.current) {
+          setTimeout(() => {
+            userMarkerRef.current?.openPopup();
+          }, 300);
+        }
+      },
+      (err) => {
+        handleLocationError(err);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
+  };
+
+  // Toggle "Follow My Location" Real-time Tracking (opt-in)
+  const toggleFollowLocation = () => {
+    if (isFollowingLocation) {
+      stopWatchingLocation();
+      setIsFollowingLocation(false);
+    } else {
+      if (!navigator.geolocation) {
+        setLocationStatus('error');
+        setLocationError({ type: 'unsupported', message: t.map.locationUnsupported });
+        return;
+      }
+
+      setIsFollowingLocation(true);
+      setLocationStatus('loading');
+      setLocationError(null);
+
+      const id = navigator.geolocation.watchPosition(
+        (pos) => {
+          const { latitude, longitude, accuracy } = pos.coords;
+          const newCoords: UserLocation = {
+            lat: latitude,
+            lng: longitude,
+            accuracy,
+            timestamp: pos.timestamp,
+          };
+          setUserCoords(newCoords);
+          setLocationStatus('success');
+          updateUserLocationOnMap(latitude, longitude, accuracy, true);
+        },
+        (err) => {
+          handleLocationError(err);
+          stopWatchingLocation();
+          setIsFollowingLocation(false);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 5000,
+        }
+      );
+      watchIdRef.current = id;
+    }
+  };
+
+  // Focus building on map
   const focusBuilding = (buildingId: number) => {
     setSelectedBuildingId(buildingId);
     const b = buildings.find((item) => item.id === buildingId);
@@ -538,7 +774,160 @@ export const CampusMap: React.FC<CampusMapProps> = ({
       <div className="flex-1 relative flex flex-col h-full">
         <div ref={mapContainerRef} className="w-full h-full z-0" />
 
-        {/* Custom Map Navigation Controls */}
+        {/* Top Floating Controls: My Location Action Bar */}
+        <div className="absolute top-4 left-4 z-10 flex flex-wrap items-center gap-2">
+          {/* Primary My Location Button */}
+          <button
+            onClick={handleGetLocation}
+            disabled={locationStatus === 'loading'}
+            data-testid="my-location-btn"
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-2xl border shadow-md font-bold text-xs transition-all ${
+              locationStatus === 'loading'
+                ? 'bg-blue-50 border-blue-300 text-blue-700 cursor-wait'
+                : userCoords
+                ? 'bg-blue-600 border-blue-700 text-white hover:bg-blue-700 hover:shadow-lg'
+                : 'bg-white/95 backdrop-blur-md border-slate-200 text-slate-800 hover:bg-slate-50 hover:border-slate-300'
+            }`}
+            title="My Location (ទីតាំងរបស់ខ្ញុំ)"
+          >
+            {locationStatus === 'loading' ? (
+              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+            ) : (
+              <LocateFixed className={`w-4 h-4 ${userCoords ? 'text-white' : 'text-blue-600'}`} />
+            )}
+            <div className="flex flex-col text-left">
+              <span className="leading-tight">{t.map.myLocation}</span>
+              <span className="text-[9px] opacity-75 font-normal leading-tight">
+                {language === 'km' ? 'My Location' : 'ទីតាំងរបស់ខ្ញុំ'}
+              </span>
+            </div>
+            {userCoords && (
+              <span className="ml-1 text-[10px] font-mono bg-blue-500/80 text-white px-1.5 py-0.2 rounded-md">
+                ±{Math.round(userCoords.accuracy)}m
+              </span>
+            )}
+          </button>
+
+          {/* Follow Mode Toggle Button (Appears when location is active) */}
+          {userCoords && (
+            <button
+              onClick={toggleFollowLocation}
+              data-testid="follow-location-btn"
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-2xl border shadow-md font-bold text-xs transition-all ${
+                isFollowingLocation
+                  ? 'bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700'
+                  : 'bg-white/95 backdrop-blur-md border-slate-200 text-slate-700 hover:bg-slate-50'
+              }`}
+              title={isFollowingLocation ? t.map.stopFollowing : t.map.followLocation}
+            >
+              <Radio className={`w-3.5 h-3.5 ${isFollowingLocation ? 'animate-pulse text-white' : 'text-slate-400'}`} />
+              <span>{isFollowingLocation ? t.map.following : t.map.followLocation}</span>
+            </button>
+          )}
+
+          {/* Privacy Note Info Trigger */}
+          <div className="relative">
+            <button
+              onClick={() => setShowPrivacyNotice(!showPrivacyNotice)}
+              className="w-8 h-8 rounded-xl bg-white/95 backdrop-blur-md border border-slate-200 hover:bg-slate-50 text-slate-500 flex items-center justify-center shadow-xs transition-colors"
+              title="Privacy Notice / ការការពារទិន្នន័យផ្ទាល់ខ្លួន"
+            >
+              <Info className="w-4 h-4 text-slate-500" />
+            </button>
+
+            {showPrivacyNotice && (
+              <div className="absolute left-0 mt-2 w-72 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-200 p-3.5 text-xs text-slate-700 z-30 space-y-1.5">
+                <div className="flex items-center justify-between font-bold text-slate-900 text-xs">
+                  <span>Privacy Notice</span>
+                  <button onClick={() => setShowPrivacyNotice(false)} className="text-slate-400 hover:text-slate-600">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  {t.map.privacyExplain}
+                </p>
+                <div className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-1.5 font-medium">
+                  {t.map.locationPrivacyNotice}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Location Error & Permission Denial Alert Banner */}
+        {locationError && (
+          <div
+            data-testid="location-error-alert"
+            className="absolute top-16 left-4 right-4 md:right-auto md:max-w-md z-20 bg-white/95 backdrop-blur-md border border-rose-200 rounded-2xl shadow-xl p-4 text-xs text-slate-800 space-y-2.5 animate-in fade-in slide-in-from-top-2"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                <div>
+                  <h5 className="font-bold text-rose-900 text-xs leading-snug">
+                    {locationError.type === 'denied'
+                      ? (language === 'km' ? 'ការអនុញ្ញាតទីតាំងត្រូវបានបដិសេធ' : 'Location Permission Denied')
+                      : locationError.type === 'timeout'
+                      ? (language === 'km' ? 'ផុតកំណត់ពេលស្នើសុំទីតាំង' : 'Location Request Timed Out')
+                      : (language === 'km' ? 'មិនអាចកំណត់ទីតាំងបានទេ' : 'Location Unavailable')}
+                  </h5>
+                  <p className="text-slate-600 mt-1 leading-relaxed text-[11px]">
+                    {locationError.message}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setLocationError(null)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+                title={t.common.close}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {locationError.type === 'denied' && (
+              <div className="bg-amber-50/90 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-900 space-y-1.5">
+                <div className="font-bold text-amber-950 flex items-center gap-1">
+                  <span>{language === 'km' ? 'របៀបបើកការអនុញ្ញាតក្នុង Browser៖' : 'How to enable permissions in your browser:'}</span>
+                </div>
+                <ol className="list-decimal list-inside space-y-1 text-amber-800 text-[10px] leading-relaxed">
+                  <li>
+                    {language === 'km'
+                      ? 'ចុចលើរូបសោ (Lock) ឬផ្ទាំងកំណត់នៅខាងឆ្វេងនៃរបារអាសយដ្ឋាន URL'
+                      : 'Click the Lock / Permissions icon in the browser address bar.'}
+                  </li>
+                  <li>
+                    {language === 'km'
+                      ? 'ប្តូរសិទ្ធិចូលប្រើ "ទីតាំង" (Location) ទៅជា "អនុញ្ញាត" (Allow)'
+                      : 'Toggle Location permission from Blocked to "Allow".'}
+                  </li>
+                  <li>
+                    {language === 'km'
+                      ? 'ផ្ទុកទំព័រឡើងវិញ (Reload) ហើយចុចលើប៊ូតុង "ទីតាំងរបស់ខ្ញុំ" ម្តងទៀត'
+                      : 'Refresh the page and click "My Location" again.'}
+                  </li>
+                </ol>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1 border-t border-slate-100">
+              <button
+                onClick={() => setLocationError(null)}
+                className="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-semibold rounded-xl"
+              >
+                {t.common.close}
+              </button>
+              <button
+                onClick={handleGetLocation}
+                className="px-3.5 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+              >
+                {language === 'km' ? 'ព្យាយាមម្តងទៀត' : 'Try Again'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Custom Map Navigation Controls Stack (Zoom & Quick Location) */}
         <div className="absolute top-4 right-4 z-10 flex flex-col gap-1.5 shadow-lg">
           <button
             onClick={handleZoomIn}
@@ -561,12 +950,32 @@ export const CampusMap: React.FC<CampusMapProps> = ({
           >
             <RotateCcw className="w-3.5 h-3.5" />
           </button>
+
+          <div className="w-full h-px bg-slate-200 my-0.5" />
+
+          {/* Quick Location Button in Zoom Stack */}
+          <button
+            onClick={handleGetLocation}
+            disabled={locationStatus === 'loading'}
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center font-bold text-sm shadow-xs transition-colors ${
+              userCoords
+                ? 'bg-blue-600 border-blue-700 text-white hover:bg-blue-700'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+            }`}
+            title="My Location (ទីតាំងរបស់ខ្ញុំ)"
+          >
+            {locationStatus === 'loading' ? (
+              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+            ) : (
+              <LocateFixed className="w-4 h-4" />
+            )}
+          </button>
         </div>
 
         {/* Floating Map Legend Card */}
         <div className="absolute bottom-4 right-4 z-10 bg-white/95 backdrop-blur-md p-3.5 rounded-2xl shadow-xl border border-slate-200 text-[11px] space-y-1.5 pointer-events-auto">
           <div className="font-extrabold text-slate-900 text-xs mb-1 flex items-center gap-1.5">
-            <Layers className="w-3.5 h-3.5 text-brand-600" /> RUPP Facilities
+            <Layers className="w-3.5 h-3.5 text-brand-600" /> RUPP Facilities & Navigation
           </div>
           <div className="flex items-center gap-2 text-slate-600">
             <span className="w-3 h-3 rounded-md bg-purple-600"></span> Cooperation Centers (CJCC, CKCC)
@@ -586,6 +995,11 @@ export const CampusMap: React.FC<CampusMapProps> = ({
           <div className="flex items-center gap-2 text-slate-600">
             <span className="w-3 h-3 rounded-full bg-rose-600"></span> Published Campus Events
           </div>
+          {userCoords && (
+            <div className="flex items-center gap-2 text-blue-700 font-bold pt-1 border-t border-slate-100">
+              <span className="w-3 h-3 rounded-full bg-blue-600 ring-2 ring-blue-300"></span> {t.map.myLocation} (±{Math.round(userCoords.accuracy)}m)
+            </div>
+          )}
         </div>
       </div>
     </div>
