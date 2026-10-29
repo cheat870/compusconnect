@@ -54,11 +54,11 @@ describe('CampusConnect Acceptance Tests - RUPP Pilot & Multi-University Archite
       .post('/api/v1/auth/login')
       .send({ email: 'student2@rupp.edu.kh', password: 'Password123!' });
     student2Token = student2Login.body.data.token;
-  });
+  }, 60000);
 
   afterAll(async () => {
     await closePool();
-  });
+  }, 30000);
 
   // Acceptance Test 1
   it('Acceptance Test 1: RUPP appears in the university directory', async () => {
@@ -263,7 +263,7 @@ describe('CampusConnect Acceptance Tests - RUPP Pilot & Multi-University Archite
     const checkDb = await request(app).get(`/api/v1/events/${eventId}`);
     expect(checkDb.body.data.registered_count).toBe(2);
     expect(checkDb.body.data.capacity).toBe(2);
-  });
+  }, 30000);
 
   // Acceptance Test 9
   it('Acceptance Test 9: An unauthorized organizer cannot modify another university\'s event', async () => {

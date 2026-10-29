@@ -20,7 +20,7 @@ const buildingSchema = z.object({
   code: z.string().optional(),
   nameEn: z.string().min(2).max(255),
   nameKm: z.string().min(2).max(255),
-  category: z.enum(['academic', 'administrative', 'library', 'cooperation_center', 'lab', 'sports', 'canteen', 'other']).default('academic'),
+  category: z.enum(['academic', 'administrative', 'library', 'cooperation_center', 'lab', 'sports', 'canteen', 'parking', 'other']).default('academic'),
   descriptionEn: z.string().optional(),
   descriptionKm: z.string().optional(),
   latitude: z.number().min(-90).max(90),
@@ -270,6 +270,46 @@ router.post('/', authenticate, authorizeRole(['platform_admin', 'university_admi
     success: true,
     data: { id: newBuildingId, ...d },
   });
+});
+
+// Delete building (Authorized Administrators with audit log)
+router.delete('/:id', authenticate, authorizeRole(['platform_admin', 'university_admin']), async (req: Request, res: Response): Promise<void> => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) {
+    res.status(400).json({ success: false, error: 'Invalid building ID' });
+    return;
+  }
+
+  const buildings: any[] = await query(
+    `SELECT b.*, c.university_id FROM buildings b JOIN campuses c ON b.campus_id = c.id WHERE b.id = ?`,
+    [id]
+  );
+
+  if (buildings.length === 0) {
+    res.status(404).json({ success: false, error: 'Building not found' });
+    return;
+  }
+
+  const building = buildings[0];
+
+  if (req.user!.role === 'university_admin' && req.user!.university_id !== building.university_id) {
+    res.status(403).json({ success: false, error: 'Cannot delete building belonging to another university' });
+    return;
+  }
+
+  await query('DELETE FROM buildings WHERE id = ?', [id]);
+
+  await logAudit({
+    userId: req.user!.id,
+    universityId: building.university_id,
+    action: 'BUILDING_DELETED',
+    entityType: 'BUILDING',
+    entityId: id,
+    details: { nameEn: building.name_en, code: building.code },
+    ipAddress: req.ip,
+  });
+
+  res.json({ success: true, message: 'Building successfully removed' });
 });
 
 export default router;

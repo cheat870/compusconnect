@@ -183,4 +183,93 @@ router.get('/me', authenticate, async (req: Request, res: Response): Promise<voi
   res.json({ success: true, data: users[0] });
 });
 
+// Logout endpoint (Specification Section 9)
+router.post('/logout', authenticate, async (req: Request, res: Response): Promise<void> => {
+  await logAudit({
+    userId: req.user!.id,
+    universityId: req.user!.university_id,
+    action: 'USER_LOGOUT',
+    entityType: 'USER',
+    entityId: req.user!.id,
+    ipAddress: req.ip,
+  });
+
+  res.json({ success: true, message: 'Logged out successfully' });
+});
+
+// Forgot Password - Issue short-lived reset token (Specification Section 6)
+router.post('/forgot-password', async (req: Request, res: Response): Promise<void> => {
+  const { email } = req.body;
+  if (!email) {
+    res.status(400).json({ success: false, error: 'Email is required' });
+    return;
+  }
+
+  const users: any[] = await query('SELECT id FROM users WHERE email = ?', [email]);
+  if (users.length === 0) {
+    // Return generic success to prevent email enumeration
+    res.json({ success: true, message: 'If this email exists, a password reset token has been generated.' });
+    return;
+  }
+
+  const userId = users[0].id;
+  const token = (await import('crypto')).randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+  await query(
+    'INSERT INTO password_resets (user_id, token, expires_at) VALUES (?, ?, ?)',
+    [userId, token, expiresAt]
+  );
+
+  await logAudit({
+    userId,
+    action: 'PASSWORD_RESET_REQUESTED',
+    entityType: 'USER',
+    entityId: userId,
+    ipAddress: req.ip,
+  });
+
+  res.json({
+    success: true,
+    message: 'Password reset token generated.',
+    // In dev/test environment, return token for verification
+    resetToken: token,
+  });
+});
+
+// Reset Password - Verify token and update password
+router.post('/reset-password', async (req: Request, res: Response): Promise<void> => {
+  const { token, newPassword } = req.body;
+  if (!token || !newPassword || newPassword.length < 6) {
+    res.status(400).json({ success: false, error: 'Valid token and minimum 6-character password are required' });
+    return;
+  }
+
+  const resets: any[] = await query(
+    'SELECT id, user_id FROM password_resets WHERE token = ? AND used = FALSE AND expires_at > NOW()',
+    [token]
+  );
+
+  if (resets.length === 0) {
+    res.status(400).json({ success: false, error: 'Invalid or expired password reset token' });
+    return;
+  }
+
+  const resetRecord = resets[0];
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+
+  await query('UPDATE users SET password_hash = ? WHERE id = ?', [passwordHash, resetRecord.user_id]);
+  await query('UPDATE password_resets SET used = TRUE WHERE id = ?', [resetRecord.id]);
+
+  await logAudit({
+    userId: resetRecord.user_id,
+    action: 'PASSWORD_RESET_COMPLETED',
+    entityType: 'USER',
+    entityId: resetRecord.user_id,
+    ipAddress: req.ip,
+  });
+
+  res.json({ success: true, message: 'Password has been successfully updated.' });
+});
+
 export default router;

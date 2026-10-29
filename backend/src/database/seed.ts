@@ -1,30 +1,40 @@
 import bcrypt from 'bcryptjs';
-import { query, closePool, getPool } from './connection.js';
+import { closePool, getPool } from './connection.js';
 
 export async function runSeeds(dbName?: string): Promise<void> {
-  const pool = getPool();
-  if (dbName) {
-    await pool.query(`USE \`${dbName}\`;`);
-  }
+  const targetDb = dbName || (process.env.NODE_ENV === 'test' ? 'campusconnect_test' : 'campusconnect');
+  const pool = getPool(targetDb);
+  const conn = await pool.getConnection();
 
-  console.log('[Seeds] Starting data seeding...');
+  const query = async (sql: string, params?: any[]) => {
+    const [rows] = await conn.query(sql, params);
+    return rows;
+  };
 
-  // 1. Password hashing
-  const passwordHash = await bcrypt.hash('Password123!', 10);
+  try {
+    if (targetDb) {
+      await conn.query(`USE \`${targetDb}\`;`);
+    }
 
-  // 2. Clear existing records safely
-  await query('SET FOREIGN_KEY_CHECKS = 0;');
-  await query('TRUNCATE TABLE audit_logs;');
-  await query('TRUNCATE TABLE notifications;');
-  await query('TRUNCATE TABLE event_favorites;');
-  await query('TRUNCATE TABLE event_registrations;');
-  await query('TRUNCATE TABLE events;');
-  await query('TRUNCATE TABLE buildings;');
-  await query('TRUNCATE TABLE university_memberships;');
-  await query('TRUNCATE TABLE campuses;');
-  await query('TRUNCATE TABLE users;');
-  await query('TRUNCATE TABLE universities;');
-  await query('SET FOREIGN_KEY_CHECKS = 1;');
+    console.log(`[Seeds] Starting data seeding on ${targetDb}...`);
+
+    // 1. Password hashing
+    const passwordHash = await bcrypt.hash('Password123!', 10);
+
+    // 2. Clear existing records safely
+    await conn.query('SET FOREIGN_KEY_CHECKS = 0;');
+    await conn.query('DELETE FROM password_resets;');
+    await conn.query('DELETE FROM audit_logs;');
+    await conn.query('DELETE FROM notifications;');
+    await conn.query('DELETE FROM event_favorites;');
+    await conn.query('DELETE FROM event_registrations;');
+    await conn.query('DELETE FROM events;');
+    await conn.query('DELETE FROM buildings;');
+    await conn.query('DELETE FROM university_memberships;');
+    await conn.query('DELETE FROM campuses;');
+    await conn.query('DELETE FROM users;');
+    await conn.query('DELETE FROM universities;');
+    await conn.query('SET FOREIGN_KEY_CHECKS = 1;');
 
   // 3. Insert Universities (Multi-University from day 1)
   const ruppResult: any = await query(`
@@ -378,6 +388,62 @@ export async function runSeeds(dbName?: string): Promise<void> {
     )
   `, [campus1Id]);
 
+  // Building 7: Main Entrance Parking Facility (Category: parking)
+  await query(`
+    INSERT INTO buildings (
+      campus_id, code, name_en, name_km, category,
+      description_en, description_km, latitude, longitude,
+      floors, is_accessible, source_url, source_type,
+      verification_status, data_classification, verified_at, last_verified_by
+    ) VALUES (
+      ?,
+      'PARK-MAIN',
+      'Main Entrance Parking Zone',
+      'ចំណតយានយន្តច្រកចូលធំ RUPP',
+      'parking',
+      'Designated vehicle and motorcycle parking facility situated near the main Russian Federation Blvd gates.',
+      'ទីតាំងចំណតរថយន្ត និងទោចក្រយានយន្តផ្លូវការក្បែរខ្លោងទ្វារមហាវិថីសហព័ន្ធរុស្ស៊ី។',
+      11.56810000,
+      104.89280000,
+      1,
+      TRUE,
+      'https://www.openstreetmap.org/way/252392612',
+      'openstreetmap',
+      'verified',
+      'verified_public',
+      NOW(),
+      ?
+    )
+  `, [campus1Id, ruppAdminId]);
+
+  // Building 8: Central Administration & Rectorate (Category: administrative)
+  await query(`
+    INSERT INTO buildings (
+      campus_id, code, name_en, name_km, category,
+      description_en, description_km, latitude, longitude,
+      floors, is_accessible, source_url, source_type,
+      verification_status, data_classification, verified_at, last_verified_by
+    ) VALUES (
+      ?,
+      'ADMIN-MAIN',
+      'RUPP Central Administration & Rectorate',
+      'អគាររដ្ឋបាលកណ្តាល និងការិយាល័យសាកលវិទ្យាធិការ',
+      'administrative',
+      'Houses the university executive council, rectorate offices, academic affairs, and student registry services.',
+      'ការិយាល័យក្រុមប្រឹក្សាភិបាល ថ្នាក់ដឹកនាំសាកលវិទ្យាល័យ ការិយាល័យសិក្សា និងចុះឈ្មោះនិស្សិត។',
+      11.56780000,
+      104.89120000,
+      3,
+      TRUE,
+      'https://www.rupp.edu.kh/',
+      'official_website',
+      'verified',
+      'verified_public',
+      NOW(),
+      ?
+    )
+  `, [campus1Id, ruppAdminId]);
+
   // 8. Events
   // Event 1: CJCC Job Fair 2026 (Verified Public Upcoming Event)
   const jobFairEvent: any = await query(`
@@ -531,6 +597,9 @@ export async function runSeeds(dbName?: string): Promise<void> {
   `, [platformAdminId, ruppId]);
 
   console.log('[Seeds] Seeding completed successfully!');
+  } finally {
+    conn.release();
+  }
 }
 
 if (process.argv[1]?.includes('seed.ts')) {

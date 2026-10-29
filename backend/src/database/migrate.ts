@@ -1,23 +1,31 @@
 import fs from 'fs';
 import path from 'path';
 import { getPool, closePool } from './connection.js';
+import { config } from '../config/index.js';
 
 export async function runMigrations(dbName?: string): Promise<void> {
   const migrationsDir = path.resolve(__dirname, '../../../database/migrations');
   const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
 
-  const pool = getPool();
-  if (dbName) {
-    await pool.query(`USE \`${dbName}\`;`);
-  }
+  const targetDb = dbName || (process.env.NODE_ENV === 'test' ? 'campusconnect_test' : config.db.name);
+  const pool = getPool(targetDb);
+  const conn = await pool.getConnection();
 
-  console.log(`[Migrations] Running migrations on database...`);
-  for (const file of files) {
-    const filePath = path.join(migrationsDir, file);
-    const sql = fs.readFileSync(filePath, 'utf-8');
-    console.log(`[Migrations] Executing ${file}...`);
-    await pool.query(sql);
-    console.log(`[Migrations] Successfully executed ${file}`);
+  try {
+    if (targetDb) {
+      await conn.query(`USE \`${targetDb}\`;`);
+    }
+
+    console.log(`[Migrations] Running migrations on database: ${targetDb}...`);
+    for (const file of files) {
+      const filePath = path.join(migrationsDir, file);
+      const sql = fs.readFileSync(filePath, 'utf-8');
+      console.log(`[Migrations] Executing ${file}...`);
+      await conn.query(sql);
+      console.log(`[Migrations] Successfully executed ${file}`);
+    }
+  } finally {
+    conn.release();
   }
 }
 

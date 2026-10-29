@@ -327,8 +327,8 @@ router.put('/:id', authenticate, authorizeRole(['platform_admin', 'university_ad
 });
 
 // 5. Register for Event (Acceptance Tests 6, 7, 8: Transactional, Duplicate Prevention & Concurrency Control)
-router.post('/:id/register', authenticate, async (req: Request, res: Response): Promise<void> => {
-  const eventId = parseInt(req.params.id, 10);
+const handleEventRegistration = async (req: Request, res: Response): Promise<void> => {
+  const eventId = parseInt(req.params.id || req.params.eventId, 10);
   if (isNaN(eventId)) {
     res.status(400).json({ success: false, error: 'Invalid event ID' });
     return;
@@ -432,11 +432,14 @@ router.post('/:id/register', authenticate, async (req: Request, res: Response): 
       error: err.message || 'Registration failed',
     });
   }
-});
+};
+
+router.post('/:id/register', authenticate, handleEventRegistration);
+router.post('/:id/registrations', authenticate, handleEventRegistration);
 
 // 6. Cancel Registration
-router.post('/:id/cancel', authenticate, async (req: Request, res: Response): Promise<void> => {
-  const eventId = parseInt(req.params.id, 10);
+const handleEventCancellation = async (req: Request, res: Response): Promise<void> => {
+  const eventId = parseInt(req.params.id || req.params.eventId, 10);
   if (isNaN(eventId)) {
     res.status(400).json({ success: false, error: 'Invalid event ID' });
     return;
@@ -480,7 +483,10 @@ router.post('/:id/cancel', authenticate, async (req: Request, res: Response): Pr
   } catch (err: any) {
     res.status(err.statusCode || 500).json({ success: false, error: err.message || 'Cancellation failed' });
   }
-});
+};
+
+router.post('/:id/cancel', authenticate, handleEventCancellation);
+router.delete('/:id/registrations/me', authenticate, handleEventCancellation);
 
 // 7. Toggle Event Favorite
 router.post('/:id/favorite', authenticate, async (req: Request, res: Response): Promise<void> => {
@@ -500,6 +506,86 @@ router.post('/:id/favorite', authenticate, async (req: Request, res: Response): 
     await query('INSERT INTO event_favorites (event_id, user_id) VALUES (?, ?)', [eventId, userId]);
     res.json({ success: true, isFavorited: true, message: 'Added to favorites' });
   }
+});
+
+// 8. Event Attendee List (Specification Section 7 & 9 for organizers and admins)
+router.get('/:id/attendees', authenticate, authorizeRole(['organizer', 'university_admin', 'platform_admin']), async (req: Request, res: Response): Promise<void> => {
+  const eventId = parseInt(req.params.id, 10);
+  if (isNaN(eventId)) {
+    res.status(400).json({ success: false, error: 'Invalid event ID' });
+    return;
+  }
+
+  const events: any[] = await query('SELECT * FROM events WHERE id = ?', [eventId]);
+  if (events.length === 0) {
+    res.status(404).json({ success: false, error: 'Event not found' });
+    return;
+  }
+
+  const event = events[0];
+
+  // Authorization scoping check
+  if (req.user!.role !== 'platform_admin') {
+    if (req.user!.university_id !== event.university_id) {
+      res.status(403).json({ success: false, error: 'Forbidden: Cannot view attendees for another university' });
+      return;
+    }
+    if (req.user!.role === 'organizer' && event.organizer_id !== req.user!.id) {
+      res.status(403).json({ success: false, error: 'Forbidden: Organizers can only view attendees for their own events' });
+      return;
+    }
+  }
+
+  const attendees = await query(
+    `SELECT er.id AS registration_id, er.status, er.registered_at,
+            u.id AS user_id, u.full_name, u.full_name_km, u.email, u.phone,
+            um.student_id_number
+     FROM event_registrations er
+     JOIN users u ON er.user_id = u.id
+     LEFT JOIN university_memberships um ON u.id = um.user_id AND um.university_id = ?
+     WHERE er.event_id = ?
+     ORDER BY er.registered_at ASC`,
+    [event.university_id, eventId]
+  );
+
+  res.json({ success: true, count: attendees.length, data: attendees });
+});
+
+// 9. Event Approval Workflow (Specification Section 7 for university administrators)
+router.put('/:id/approval', authenticate, authorizeRole(['university_admin', 'platform_admin']), async (req: Request, res: Response): Promise<void> => {
+  const eventId = parseInt(req.params.id, 10);
+  const { approvalStatus, rejectionReason } = req.body;
+
+  if (!['approved', 'rejected', 'pending'].includes(approvalStatus)) {
+    res.status(400).json({ success: false, error: 'Invalid approval status' });
+    return;
+  }
+
+  const events: any[] = await query('SELECT * FROM events WHERE id = ?', [eventId]);
+  if (events.length === 0) {
+    res.status(404).json({ success: false, error: 'Event not found' });
+    return;
+  }
+
+  const event = events[0];
+  if (req.user!.role === 'university_admin' && req.user!.university_id !== event.university_id) {
+    res.status(403).json({ success: false, error: 'Cannot approve/reject events of another university' });
+    return;
+  }
+
+  await query('UPDATE events SET approval_status = ? WHERE id = ?', [approvalStatus, eventId]);
+
+  await logAudit({
+    userId: req.user!.id,
+    universityId: event.university_id,
+    action: `EVENT_APPROVAL_${approvalStatus.toUpperCase()}`,
+    entityType: 'EVENT',
+    entityId: eventId,
+    details: { approvalStatus, rejectionReason: rejectionReason || null },
+    ipAddress: req.ip,
+  });
+
+  res.json({ success: true, message: `Event has been ${approvalStatus}` });
 });
 
 export default router;

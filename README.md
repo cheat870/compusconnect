@@ -1,6 +1,7 @@
-# CampusConnect MVP — Royal University of Phnom Penh (RUPP) Pilot
+# CampusConnect v2.0 — Multi-University Campus Map & Events Platform
+### Pilot Institution: Royal University of Phnom Penh (RUPP), Cambodia
 
-CampusConnect is a multi-university digital campus directory, interactive venue navigation, and event management platform. This pilot implementation features the **Royal University of Phnom Penh (RUPP)** as its first verified institution, with multi-tenant architecture designed to scale seamlessly to all higher education institutions across Cambodia.
+CampusConnect is a production-grade Khmer-English multi-university digital campus directory, interactive venue navigation, and event management platform. This v2.0 upgrade implements the complete pilot for the **Royal University of Phnom Penh (RUPP)** with multi-tenant architecture designed to scale seamlessly across all higher education institutions in Cambodia.
 
 ---
 
@@ -17,33 +18,50 @@ CampusConnect is a multi-university digital campus directory, interactive venue 
   - **IFL** (Institute of Foreign Languages - Vann Molyvann design): `11.56900° N, 104.89140° E`
   - **Hun Sen Library** (Central University Library): `11.56834° N, 104.88902° E`
   - **STEM Building** (Faculty of Science & Computer Labs): `11.56880° N, 104.89050° E`
+  - **RUPP Administrative Building**: `11.56820° N, 104.89020° E`
+  - **Main Campus Parking Area**: `11.56780° N, 104.89200° E`
 
 *Disclaimer: CampusConnect is an independent educational platform piloting verified public information from RUPP and official institutional sources. It does not claim university endorsement or official partnership unless explicitly confirmed.*
 
 ---
 
-## 🚀 Key Features
+## 🚀 Key Features in V2.0
 
-1. **Multi-University Architecture from Day 1:** Fully relational database structure (`university_id`, `campus_id`) preventing single-university hardcoding. Dynamically supports additional universities without any DDL/schema modifications.
-2. **Data Verification Workflow:** Every university, campus, building, and event tracks `source_url`, `source_type`, `verification_status` (`verified`, `unverified`), and `data_classification` (`verified_public`, `demonstration`).
-3. **Interactive Campus Map:** Leaflet map with configurable OpenStreetMap tiles, campus switcher, building markers categorized with distinct SVG icons, event markers, "Get Directions" routing links, and "View on Map" navigation.
-4. **Verified Event Directory & Concurrency-Safe Booking:**
-   - Real public verified announcements (e.g., CJCC Job Fair 2026, RUPP Tech Innovation Hackathon).
-   - High-concurrency seat capacity reservation using transactional row-level locks (`SELECT ... FOR UPDATE`), strictly preventing over-registration.
-   - Immediate duplicate registration rejection and instant cancellation.
-   - Strict filtering ensuring expired or unverified events are never presented as confirmed upcoming events.
-5. **Role-Based Portals & Scoped Access:**
-   - **Student Dashboard:** View bookings, cancel reservations, favorites, and notifications.
-   - **Organizer Dashboard:** Manage university-scoped events, create verified announcements, and view attendee rates.
-   - **Admin Dashboard:** Platform and University administration, building coordinate correction tool with verification audit logging, and immutable system audit logs.
-   - **Cross-University Isolation:** University administrators cannot access records or audit logs belonging to another institution.
-6. **Bilingual Interface (Khmer & English):** Native switcher between ភាសាខ្មែរ (KM) and English (EN) with persistent selection in localStorage.
+1. **Split-Screen Interactive Map (35% Sidebar / 65% Map):**
+   - Left-hand facilities panel with real-time search, category filters (academic, library, cooperation center, lab, administrative, canteen, parking), verified facility count, and scrollable cards.
+   - Main Leaflet / OpenStreetMap viewport with custom categorized SVG pin markers, venue popups, zoom controls (+/-/reset view).
+   - **Bi-directional Focus Interaction:** Clicking any facility card centers the map on the marker and opens the popup; clicking any map marker highlights and smoothly scrolls the corresponding facility card into view.
+   - Mobile-responsive collapsible facilities drawer.
+
+2. **Institution Switcher in Header:**
+   - Universal dropdown in the main navigation bar allowing seamless switching between institutions (e.g. RUPP, ITC) while maintaining institutional database scoping.
+
+3. **Dedicated Facilities Directory (`/facilities`):**
+   - Grid view of campus buildings with search, category filtering, verified badges, floor counts, GPS coordinates, external directions links, and direct "View on Map" navigation.
+
+4. **Dedicated My Registrations Page (`/me/registrations`):**
+   - Allows enrolled students to view their confirmed bookings, venue location details, Phnom Penh local timestamps, and direct "Cancel Registration" button.
+
+5. **Organizer Attendee Rosters (`GET /api/v1/events/:id/attendees`):**
+   - Organizers can view live attendee lists (student name, email, student ID, registration date) for their organized sessions.
+
+6. **University Admin Event Approval Workflow (`PUT /api/v1/events/:id/approval`):**
+   - Approval queue where campus administrators review pending event submissions, approving or rejecting with optional audit comments.
+
+7. **Production Security Enhancements:**
+   - `helmet` security headers.
+   - Rate limiting via `express-rate-limit` on authentication endpoints (`/api/v1/auth/*`).
+   - Secure password reset workflow (`/forgot-password`, `/reset-password`).
+   - Strict role-based access control (Platform Admin, University Admin, Organizer, Student).
+
+8. **Bilingual Khmer-English System (ភាសាខ្មែរ / English):**
+   - Seamless one-click language toggle across all navigation menus, map cards, popups, and dashboard forms with persistent selection in localStorage.
 
 ---
 
 ## 📋 Acceptance Test Results
 
-All 13 acceptance test suites were implemented and executed against the MySQL database and frontend compiler:
+All 13 acceptance test suites are automated with Vitest and verified against the live MySQL database:
 
 | # | Acceptance Test Case | Execution Status |
 |---|---|---|
@@ -54,7 +72,7 @@ All 13 acceptance test suites were implemented and executed against the MySQL da
 | 5 | The event page displays its verified venue | **PASS** |
 | 6 | A student can register for an eligible published event | **PASS** |
 | 7 | Duplicate registrations are rejected | **PASS** |
-| 8 | Capacity cannot be exceeded under concurrent registration | **PASS** (1611ms, atomic `FOR UPDATE` lock) |
+| 8 | Capacity cannot be exceeded under concurrent registration | **PASS** (Atomic `SELECT ... FOR UPDATE` row lock) |
 | 9 | An unauthorized organizer cannot modify another university's event | **PASS** (HTTP 403 Forbidden) |
 | 10 | A university administrator cannot access restricted records of another university | **PASS** (HTTP 403 Forbidden) |
 | 11 | The interface switches correctly between Khmer and English | **PASS** (Dual dictionary & Unicode verification) |
@@ -66,15 +84,15 @@ All 13 acceptance test suites were implemented and executed against the MySQL da
 ## 🛠️ Windows PowerShell Setup & Running Commands
 
 ### Prerequisites
-- Node.js v20+ (Node v25.9.0 tested)
+- Node.js v20+ (tested on Node v25.9.0)
 - MySQL 8.0+ running on `localhost:3306`
 
 ### 1. Database Setup & Migrations
 ```powershell
-# Open Windows PowerShell in project root:
+# Open Windows PowerShell in backend directory:
 cd D:\Build_Project_With_Ai\Website_Ai\CampusConnect\backend
 
-# Run migrations and seed data
+# Execute migrations and seed initial RUPP pilot data:
 npm run migrate
 npm run seed
 ```
@@ -85,7 +103,13 @@ cd D:\Build_Project_With_Ai\Website_Ai\CampusConnect\backend
 npm test
 ```
 
-### 3. Run Development Servers
+### 3. Build Frontend for Production
+```powershell
+cd D:\Build_Project_With_Ai\Website_Ai\CampusConnect\frontend
+npm run build
+```
+
+### 4. Run Development Servers
 Open two PowerShell terminals:
 
 **Terminal 1 (Backend REST API - http://localhost:5000):**
@@ -100,19 +124,13 @@ cd D:\Build_Project_With_Ai\Website_Ai\CampusConnect\frontend
 npm run dev
 ```
 
-### 4. Build Frontend for Production
-```powershell
-cd D:\Build_Project_With_Ai\Website_Ai\CampusConnect\frontend
-npm run build
-```
-
 ---
 
 ## 🔑 Test Personas & Credentials
 
-All test personas use password: `Password123!`
+All test accounts use password: `Password123!`
 
-| Role | Email | Scope |
+| Role | Email | Institution Scope |
 |---|---|---|
 | **Platform Administrator** | `admin@campusconnect.edu.kh` | Unrestricted global access |
 | **RUPP Administrator** | `rupp.admin@rupp.edu.kh` | Royal University of Phnom Penh |
@@ -120,4 +138,4 @@ All test personas use password: `Password123!`
 | **Student** | `student@rupp.edu.kh` | Enrolled RUPP Student |
 | **ITC Administrator** | `itc.admin@itc.edu.kh` | Institute of Technology of Cambodia |
 
-*A one-click persona switcher is embedded in the top navbar for immediate evaluation of each dashboard without manual login typing.*
+*A one-click persona switcher is embedded directly in the top navbar (`Personas` button) for instantaneous evaluation without manual login typing.*

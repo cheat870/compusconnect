@@ -2,15 +2,21 @@ import mysql, { Pool, PoolConnection } from 'mysql2/promise';
 import { config } from '../config/index.js';
 
 let pool: Pool | null = null;
+let currentDb: string | null = null;
 
-export function getPool(): Pool {
-  if (!pool) {
+export function getPool(overrideDatabase?: string): Pool {
+  const targetDb = overrideDatabase || (process.env.NODE_ENV === 'test' ? (process.env.DB_TEST_NAME || 'campusconnect_test') : config.db.name);
+  if (!pool || (currentDb && currentDb !== targetDb)) {
+    if (pool) {
+      pool.end();
+    }
+    currentDb = targetDb;
     pool = mysql.createPool({
       host: config.db.host,
       port: config.db.port,
       user: config.db.user,
       password: config.db.password,
-      database: config.db.name,
+      database: targetDb,
       waitForConnections: true,
       connectionLimit: 30,
       queueLimit: 0,
@@ -49,5 +55,6 @@ export async function closePool(): Promise<void> {
   if (pool) {
     await pool.end();
     pool = null;
+    currentDb = null;
   }
 }
