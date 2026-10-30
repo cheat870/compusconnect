@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import L from 'leaflet';
 import { useLanguage } from '../i18n/context.js';
+import api from '../services/api.js';
 import {
   MapPin,
   Navigation,
@@ -26,8 +27,77 @@ import {
   LocateFixed,
   Radio,
   Loader2,
-  Info
+  Info,
+  Route,
+  ChevronDown,
+  Zap,
+  ShieldCheck,
+  TrendingUp,
+  Clock,
+  Minimize2,
+  Maximize2,
+  Eye,
+  EyeOff,
+  ChevronUp
 } from 'lucide-react';
+
+export interface RouteStep {
+  instruction: string;
+  distance: number;
+  duration: number;
+  name?: string | null;
+  type?: string;
+  modifier?: string;
+  trafficStatus?: 'smooth' | 'moderate' | 'congested';
+}
+
+export interface RouteOption {
+  id: 'fastest_clear' | 'shortest' | 'bypass';
+  name: string;
+  nameEn: string;
+  subtitle: string;
+  subtitleEn: string;
+  isRecommended: boolean;
+  badge?: string;
+  distance: number;
+  duration: number;
+  distanceSaved?: number;
+  trafficLevel: 'smooth' | 'moderate' | 'congested';
+  trafficLabel: string;
+  trafficBadgeColor: 'emerald' | 'amber' | 'rose';
+  delaySeconds: number;
+  coordinates: [number, number][];
+  steps?: RouteStep[];
+}
+
+export interface RouteData {
+  destinationName: string;
+  startName: string;
+  distance: number;
+  duration: number;
+  mode: 'foot' | 'car';
+  trafficLevel: 'smooth' | 'moderate' | 'congested';
+  trafficLabel: string;
+  trafficBadgeColor: 'emerald' | 'amber' | 'rose';
+  activeRouteId: 'fastest_clear' | 'shortest' | 'bypass';
+  routes: RouteOption[];
+  coordinates: [number, number][];
+  steps?: RouteStep[];
+  isUsingUserLocation: boolean;
+  destinationLat: number;
+  destinationLng: number;
+}
+
+export interface AdministrativeLocation {
+  village?: string | null;
+  sangkat?: string | null;
+  khan?: string | null;
+  city?: string | null;
+  road?: string | null;
+  displayName?: string | null;
+  formattedSummary?: string | null;
+  loading?: boolean;
+}
 
 interface Building {
   id: number;
@@ -106,19 +176,37 @@ export const CampusMap: React.FC<CampusMapProps> = ({
   const userMarkerRef = useRef<L.Marker | null>(null);
   const userCircleRef = useRef<L.Circle | null>(null);
   const buildingMarkersMapRef = useRef<Map<number, L.Marker>>(new Map());
+  const routeLayerRef = useRef<L.LayerGroup | null>(null);
   const watchIdRef = useRef<number | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedBuildingId, setSelectedBuildingId] = useState<number | null>(activeBuildingId || null);
-  const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState<boolean>(true);
+  const [mobileTab, setMobileTab] = useState<'map' | 'facilities'>('map');
+
+  // In-App Routing / Navigation States
+  const [routeData, setRouteData] = useState<RouteData | null>(null);
+  const [isRoutingLoading, setIsRoutingLoading] = useState<boolean>(false);
+  const [routingError, setRoutingError] = useState<string | null>(null);
+  const [selectedRouteMode, setSelectedRouteMode] = useState<'foot' | 'car'>('car');
+  const [showTurnByTurn, setShowTurnByTurn] = useState<boolean>(false);
+  const [isRoutePanelCollapsed, setIsRoutePanelCollapsed] = useState<boolean>(false);
+  const activeDestinationRef = useRef<{ lat: number; lng: number; name: string } | null>(null);
+  const startInAppRoutingRef = useRef<((destLat: number, destLng: number, destName: string, mode?: 'foot' | 'car') => Promise<void>) | null>(null);
 
   // Real-time Geolocation States
   const [userCoords, setUserCoords] = useState<UserLocation | null>(null);
+  const userCoordsRef = useRef<UserLocation | null>(null);
+  userCoordsRef.current = userCoords;
+  const handleGetLocationRef = useRef<(() => void) | null>(null);
   const [locationStatus, setLocationStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [locationError, setLocationError] = useState<LocationError | null>(null);
   const [isFollowingLocation, setIsFollowingLocation] = useState<boolean>(false);
   const [showPrivacyNotice, setShowPrivacyNotice] = useState<boolean>(false);
+  const [userAdminAddress, setUserAdminAddress] = useState<AdministrativeLocation | null>(null);
+  const userAdminAddressRef = useRef<AdministrativeLocation | null>(null);
+  userAdminAddressRef.current = userAdminAddress;
+  const lastGeocodedCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
 
   const currentCampus = campuses.find((c) => c.id === selectedCampusId) || campuses[0];
 
@@ -142,23 +230,58 @@ export const CampusMap: React.FC<CampusMapProps> = ({
         maxZoom: 19,
       }).addTo(map);
 
-      // Separate layers for campus facilities and user location
+      // Separate layers for campus facilities, user location, and route navigation
       const markersGroup = L.layerGroup().addTo(map);
       markersLayerRef.current = markersGroup;
 
       const userGroup = L.layerGroup().addTo(map);
       userLocationLayerRef.current = userGroup;
 
-      mapInstanceRef.current = map;
-    }
+      const routeGroup = L.layerGroup().addTo(map);
+      routeLayerRef.current = routeGroup;
 
-    return () => {
-      // Clear geolocation watcher if active
-      if (watchIdRef.current !== null && navigator.geolocation) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-        watchIdRef.current = null;
-      }
-    };
+      mapInstanceRef.current = map;
+
+      // Click on map to show user location immediately if not yet located
+      map.on('click', (e: L.LeafletMouseEvent) => {
+        const target = e.originalEvent.target as HTMLElement;
+        if (!target.closest('.leaflet-popup') && !target.closest('.leaflet-marker-icon') && !target.closest('button')) {
+          handleGetLocationRef.current?.();
+        }
+      });
+
+      // Delegated click listener for in-popup "Get Directions" buttons
+      const container = mapContainerRef.current;
+      const handlePopupDirectionsClick = (e: MouseEvent) => {
+        const target = e.target as HTMLElement;
+        const btn = target.closest('.btn-get-directions') as HTMLButtonElement;
+        if (btn) {
+          e.preventDefault();
+          e.stopPropagation();
+          const lat = parseFloat(btn.getAttribute('data-lat') || '0');
+          const lng = parseFloat(btn.getAttribute('data-lng') || '0');
+          const name = decodeURIComponent(btn.getAttribute('data-name') || '');
+          if (lat && lng && startInAppRoutingRef.current) {
+            startInAppRoutingRef.current(lat, lng, name);
+          }
+        }
+      };
+      container.addEventListener('click', handlePopupDirectionsClick);
+
+      const handleResize = () => {
+        map.invalidateSize();
+      };
+      window.addEventListener('resize', handleResize);
+
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        container.removeEventListener('click', handlePopupDirectionsClick);
+        if (watchIdRef.current !== null && navigator.geolocation) {
+          navigator.geolocation.clearWatch(watchIdRef.current);
+          watchIdRef.current = null;
+        }
+      };
+    }
   }, []);
 
   // Update map view when campus changes
@@ -304,8 +427,6 @@ export const CampusMap: React.FC<CampusMapProps> = ({
         iconAnchor: [20, 25],
       });
 
-      const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-
       const popupHtml = `
         <div class="p-3.5 text-slate-800 font-sans max-w-xs">
           <div class="flex items-center gap-1.5 mb-1.5">
@@ -318,11 +439,18 @@ export const CampusMap: React.FC<CampusMapProps> = ({
           </div>
           <h4 class="font-extrabold text-sm text-slate-900 leading-snug">${language === 'km' ? b.name_km : b.name_en}</h4>
           <p class="text-xs text-slate-500 mt-1 line-clamp-2">${(language === 'km' ? b.description_km : b.description_en) || ''}</p>
-          <div class="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+          <div class="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs gap-2">
             <span class="text-slate-400 font-mono text-[10px]">${lat.toFixed(5)}, ${lng.toFixed(5)}</span>
-            <a href="${directionsUrl}" target="_blank" rel="noopener noreferrer" class="text-brand-600 hover:text-brand-700 font-bold flex items-center gap-1">
-              ${t.map.getDirections} ↗
-            </a>
+            <button
+              type="button"
+              class="btn-get-directions text-white bg-brand-600 hover:bg-brand-700 active:scale-95 font-bold px-2.5 py-1 rounded-lg flex items-center gap-1.5 text-[11px] shadow-xs transition-all cursor-pointer"
+              data-lat="${lat}"
+              data-lng="${lng}"
+              data-name="${encodeURIComponent(language === 'km' ? b.name_km : b.name_en)}"
+            >
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+              ${t.map.getDirections}
+            </button>
           </div>
         </div>
       `;
@@ -372,6 +500,19 @@ export const CampusMap: React.FC<CampusMapProps> = ({
           </span>
           <h4 class="font-bold text-sm text-slate-900 mt-1.5 leading-snug">${language === 'km' ? ev.title_km : ev.title_en}</h4>
           <p class="text-xs text-slate-500 mt-1">Date: ${new Date(ev.start_time).toLocaleDateString()}</p>
+          <div class="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs gap-2">
+            <span class="text-slate-400 font-mono text-[10px]">${lat.toFixed(5)}, ${lng.toFixed(5)}</span>
+            <button
+              type="button"
+              class="btn-get-directions text-white bg-rose-600 hover:bg-rose-700 active:scale-95 font-bold px-2 py-1 rounded-lg flex items-center gap-1 text-[11px] shadow-xs transition-all cursor-pointer"
+              data-lat="${lat}"
+              data-lng="${lng}"
+              data-name="${encodeURIComponent(language === 'km' ? ev.title_km : ev.title_en)}"
+            >
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+              ${t.map.getDirections}
+            </button>
+          </div>
         </div>
       `;
 
@@ -385,8 +526,11 @@ export const CampusMap: React.FC<CampusMapProps> = ({
   }, [filteredBuildings, events, selectedCampusId, language, selectedBuildingId]);
 
   // Update User Location Marker and Accuracy Circle on Leaflet Map
-  const updateUserLocationOnMap = useCallback((lat: number, lng: number, accuracy: number, shouldPan: boolean = false) => {
+  const updateUserLocationOnMap = useCallback((lat: number, lng: number, accuracy: number, shouldPan: boolean = false, adminLocation?: AdministrativeLocation | null) => {
     if (!mapInstanceRef.current || !userLocationLayerRef.current) return;
+
+    const admin = adminLocation !== undefined ? adminLocation : userAdminAddressRef.current;
+    const accuracyMeters = Math.round(accuracy);
 
     // Distinct blue dot marker with animated outer pulse and crisp white ring
     const userIcon = L.divIcon({
@@ -401,7 +545,32 @@ export const CampusMap: React.FC<CampusMapProps> = ({
       iconAnchor: [16, 16],
     });
 
-    const accuracyMeters = Math.round(accuracy);
+    const hasAdmin = admin && (admin.village || admin.sangkat || admin.khan || admin.city);
+
+    const adminHtml = admin?.loading
+      ? `
+        <div class="my-2 p-2 bg-blue-50/70 border border-blue-200/60 rounded-xl text-xs text-blue-700 flex items-center gap-2">
+          <span class="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0"></span>
+          <span class="text-[11px] font-medium">${t.map.loadingAddress}</span>
+        </div>
+      `
+      : hasAdmin
+      ? `
+        <div class="my-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1.5 shadow-2xs">
+          <div class="text-[10px] font-black uppercase tracking-wider text-slate-500 flex items-center gap-1">
+            <span>📍</span> ${t.map.administrativeArea}
+          </div>
+          <div class="space-y-1 text-slate-700 text-xs">
+            ${admin.village ? `<div class="flex items-start gap-1.5"><span class="font-bold text-slate-900 shrink-0">${t.map.village}:</span> <span class="text-blue-900 font-bold">${admin.village}</span></div>` : ''}
+            ${admin.sangkat ? `<div class="flex items-start gap-1.5"><span class="font-bold text-slate-900 shrink-0">${t.map.sangkat}:</span> <span class="text-indigo-900 font-bold">${admin.sangkat}</span></div>` : ''}
+            ${admin.khan ? `<div class="flex items-start gap-1.5"><span class="font-bold text-slate-900 shrink-0">${t.map.khan}:</span> <span class="text-purple-900 font-bold">${admin.khan}</span></div>` : ''}
+            ${admin.city ? `<div class="flex items-start gap-1.5"><span class="font-bold text-slate-900 shrink-0">${t.map.cityProvince}:</span> <span class="text-slate-800">${admin.city}</span></div>` : ''}
+            ${admin.road ? `<div class="text-[11px] text-slate-500 pt-1 border-t border-slate-200/60 font-medium">${t.map.road}: ${admin.road}</div>` : ''}
+          </div>
+        </div>
+      `
+      : '';
+
     const popupContent = `
       <div class="p-3 text-slate-800 font-sans max-w-xs">
         <div class="flex items-center gap-1.5 mb-1">
@@ -411,6 +580,9 @@ export const CampusMap: React.FC<CampusMapProps> = ({
           </span>
         </div>
         <h4 class="font-bold text-sm text-slate-900">${t.map.locationFound}</h4>
+
+        ${adminHtml}
+
         <div class="mt-2 space-y-0.5 text-xs text-slate-600 font-medium">
           <div>${t.map.locationAccuracy}: <span class="font-mono font-bold text-slate-800">±${accuracyMeters} ${t.map.meters}</span></div>
           <div class="font-mono text-[10px] text-slate-400 pt-0.5">GPS: ${lat.toFixed(5)}, ${lng.toFixed(5)}</div>
@@ -487,6 +659,31 @@ export const CampusMap: React.FC<CampusMapProps> = ({
     }
   }, []);
 
+  // Fetch administrative address (Village/Phum, Sangkat, Khan, Capital/Province) via reverse geocoding
+  const fetchAdministrativeAddress = useCallback(
+    async (lat: number, lng: number, accuracy: number) => {
+      setUserAdminAddress({ loading: true });
+      updateUserLocationOnMap(lat, lng, accuracy, false, { loading: true });
+
+      try {
+        const res = await api.get(`/geo/reverse?lat=${lat}&lng=${lng}&lang=${language}`);
+        if (res.data?.success && res.data?.data) {
+          const adminData: AdministrativeLocation = res.data.data;
+          setUserAdminAddress(adminData);
+          lastGeocodedCoordsRef.current = { lat, lng };
+          updateUserLocationOnMap(lat, lng, accuracy, false, adminData);
+          return adminData;
+        }
+      } catch (err) {
+        console.warn('Reverse geocoding lookup failed:', err);
+        setUserAdminAddress(null);
+        updateUserLocationOnMap(lat, lng, accuracy, false, null);
+      }
+      return null;
+    },
+    [language, updateUserLocationOnMap]
+  );
+
   // Request Current Location (One-time check)
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
@@ -509,9 +706,10 @@ export const CampusMap: React.FC<CampusMapProps> = ({
         };
         setUserCoords(newCoords);
         setLocationStatus('success');
-        updateUserLocationOnMap(latitude, longitude, accuracy, true);
+        updateUserLocationOnMap(latitude, longitude, accuracy, true, { loading: true });
+        fetchAdministrativeAddress(latitude, longitude, accuracy);
 
-        // Open popup automatically on first location capture
+        // Open popup automatically on location capture
         if (userMarkerRef.current) {
           setTimeout(() => {
             userMarkerRef.current?.openPopup();
@@ -528,6 +726,13 @@ export const CampusMap: React.FC<CampusMapProps> = ({
       }
     );
   };
+
+  handleGetLocationRef.current = handleGetLocation;
+
+  // Auto-request location immediately when CampusMap mounts/opens
+  useEffect(() => {
+    handleGetLocation();
+  }, []);
 
   // Toggle "Follow My Location" Real-time Tracking (opt-in)
   const toggleFollowLocation = () => {
@@ -557,6 +762,12 @@ export const CampusMap: React.FC<CampusMapProps> = ({
           setUserCoords(newCoords);
           setLocationStatus('success');
           updateUserLocationOnMap(latitude, longitude, accuracy, true);
+
+          // If moved > 25m or first time, re-fetch reverse geocode
+          const last = lastGeocodedCoordsRef.current;
+          if (!last || Math.hypot(last.lat - latitude, last.lng - longitude) > 0.00025) {
+            fetchAdministrativeAddress(latitude, longitude, accuracy);
+          }
         },
         (err) => {
           handleLocationError(err);
@@ -573,9 +784,33 @@ export const CampusMap: React.FC<CampusMapProps> = ({
     }
   };
 
+  const handleLocationButtonClick = () => {
+    if (userCoords && mapInstanceRef.current && userMarkerRef.current) {
+      mapInstanceRef.current.setView(
+        [userCoords.lat, userCoords.lng],
+        Math.max(mapInstanceRef.current.getZoom(), 17),
+        { animate: true }
+      );
+      userMarkerRef.current.openPopup();
+    } else {
+      handleGetLocation();
+    }
+  };
+
+  // Re-fetch administrative address when user changes language
+  useEffect(() => {
+    if (userCoords) {
+      fetchAdministrativeAddress(userCoords.lat, userCoords.lng, userCoords.accuracy);
+    }
+  }, [language, fetchAdministrativeAddress]);
+
   // Focus building on map
   const focusBuilding = (buildingId: number) => {
     setSelectedBuildingId(buildingId);
+    setMobileTab('map');
+    setTimeout(() => {
+      mapInstanceRef.current?.invalidateSize();
+    }, 150);
     const b = buildings.find((item) => item.id === buildingId);
     if (!b || !mapInstanceRef.current) return;
 
@@ -604,27 +839,300 @@ export const CampusMap: React.FC<CampusMapProps> = ({
     }
   };
 
+  // -------------------------------------------------------------
+  // In-App Routing / Navigation Engine (Leaflet Polyline on Web)
+  // -------------------------------------------------------------
+  const selectRouteOptionRef = useRef<((id: 'fastest_clear' | 'shortest' | 'bypass') => void) | null>(null);
+
+  const renderRouteOnMap = useCallback((route: RouteData) => {
+    if (!mapInstanceRef.current || !routeLayerRef.current) return;
+
+    routeLayerRef.current.clearLayers();
+
+    if (!route.coordinates || route.coordinates.length < 2) return;
+
+    // 1. Draw Inactive / Alternative Routes First (Interactive click switches route)
+    if (route.routes && route.routes.length > 1) {
+      route.routes.forEach((alt) => {
+        if (alt.id === route.activeRouteId || !alt.coordinates || alt.coordinates.length < 2) return;
+
+        const altPoly = L.polyline(alt.coordinates, {
+          color: '#64748b',
+          weight: 5,
+          opacity: 0.55,
+          dashArray: '5, 8',
+          lineCap: 'round',
+          lineJoin: 'round',
+        });
+
+        altPoly.bindTooltip(
+          `<div class="font-sans text-xs p-1">
+             <div class="font-extrabold text-slate-900">${alt.name}</div>
+             <div class="text-[10px] text-slate-500 font-mono mt-0.5">${alt.distance >= 1000 ? (alt.distance / 1000).toFixed(1) + ' km' : alt.distance + ' m'} • ${alt.trafficLabel}</div>
+             <div class="text-[9px] text-blue-600 font-bold mt-1">👆 ចុចដើម្បីប្តូរមកផ្លូវនេះ (Click to switch)</div>
+           </div>`,
+          { sticky: true }
+        );
+
+        altPoly.on('click', () => {
+          selectRouteOptionRef.current?.(alt.id);
+        });
+
+        altPoly.on('mouseover', () => {
+          altPoly.setStyle({ color: '#0284c7', weight: 7, opacity: 0.9 });
+        });
+        altPoly.on('mouseout', () => {
+          altPoly.setStyle({ color: '#64748b', weight: 5, opacity: 0.55 });
+        });
+
+        routeLayerRef.current!.addLayer(altPoly);
+      });
+    }
+
+    // 2. Glowing casing polyline for Active Route
+    const casing = L.polyline(route.coordinates, {
+      color: '#1e3a8a',
+      weight: 9,
+      opacity: 0.38,
+      lineCap: 'round',
+      lineJoin: 'round',
+    });
+
+    // Active route path (vibrant blue or amber depending on traffic status)
+    const line = L.polyline(route.coordinates, {
+      color: route.trafficBadgeColor === 'emerald' ? '#2563eb' : '#f59e0b',
+      weight: 6,
+      opacity: 0.98,
+      dashArray: route.mode === 'foot' ? '6, 8' : undefined,
+      lineCap: 'round',
+      lineJoin: 'round',
+    });
+
+    // Start marker (A)
+    const startPt = route.coordinates[0];
+    const startIcon = L.divIcon({
+      className: 'route-start-icon',
+      html: `
+        <div class="w-7 h-7 rounded-full bg-emerald-600 text-white font-black text-xs flex items-center justify-center shadow-lg border-2 border-white ring-2 ring-emerald-300">
+          A
+        </div>
+      `,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
+    });
+    const startMarker = L.marker(startPt, { icon: startIcon }).bindPopup(
+      `<div class="font-bold text-xs p-1">📍 ${route.startName}</div>`
+    );
+
+    // Destination marker (B)
+    const endPt = route.coordinates[route.coordinates.length - 1];
+    const endIcon = L.divIcon({
+      className: 'route-end-icon',
+      html: `
+        <div class="w-8 h-8 rounded-full bg-rose-600 text-white font-black text-xs flex items-center justify-center shadow-lg border-2 border-white ring-2 ring-rose-300 animate-bounce">
+          B
+        </div>
+      `,
+      iconSize: [32, 32],
+      iconAnchor: [16, 16],
+    });
+    const endMarker = L.marker(endPt, { icon: endIcon }).bindPopup(
+      `<div class="font-bold text-xs p-1">🏁 ${route.destinationName}</div>`
+    );
+
+    routeLayerRef.current.addLayer(casing);
+    routeLayerRef.current.addLayer(line);
+    routeLayerRef.current.addLayer(startMarker);
+    routeLayerRef.current.addLayer(endMarker);
+
+    // Auto-fit bounds so the entire path from user to destination is cleanly visible
+    mapInstanceRef.current.fitBounds(line.getBounds(), {
+      padding: [60, 60],
+      maxZoom: 18,
+      animate: true,
+    });
+  }, []);
+
+  const selectRouteOption = useCallback(
+    (optionId: 'fastest_clear' | 'shortest' | 'bypass') => {
+      setRouteData((prev) => {
+        if (!prev) return prev;
+        const target = prev.routes?.find((r) => r.id === optionId);
+        if (!target) return prev;
+
+        const updated: RouteData = {
+          ...prev,
+          activeRouteId: target.id,
+          distance: target.distance,
+          duration: target.duration,
+          trafficLevel: target.trafficLevel,
+          trafficLabel: target.trafficLabel,
+          trafficBadgeColor: target.trafficBadgeColor,
+          coordinates: target.coordinates,
+          steps: target.steps || prev.steps,
+        };
+        renderRouteOnMap(updated);
+        return updated;
+      });
+    },
+    [renderRouteOnMap]
+  );
+
+  selectRouteOptionRef.current = selectRouteOption;
+
+  const clearRoute = useCallback(() => {
+    setRouteData(null);
+    setIsRoutePanelCollapsed(false);
+    activeDestinationRef.current = null;
+    setRoutingError(null);
+    if (routeLayerRef.current) {
+      routeLayerRef.current.clearLayers();
+    }
+  }, []);
+
+  const startInAppRouting = useCallback(
+    async (
+      destLat: number,
+      destLng: number,
+      destName: string,
+      mode: 'foot' | 'car' = selectedRouteMode
+    ) => {
+      activeDestinationRef.current = { lat: destLat, lng: destLng, name: destName };
+      setIsRoutingLoading(true);
+      setRoutingError(null);
+
+      // Starting point: User's GPS position if available, else campus entrance
+      const hasUserGps = Boolean(userCoords && userCoords.lat && userCoords.lng);
+      let startLat = userCoords?.lat;
+      let startLng = userCoords?.lng;
+      let startName = language === 'km' ? 'ទីតាំងបច្ចុប្បន្នរបស់អ្នក' : 'Your Location';
+
+      if (!startLat || !startLng) {
+        startLat = currentCampus ? Number(currentCampus.latitude) : 11.56845;
+        startLng = currentCampus ? Number(currentCampus.longitude) : 104.89115;
+        startName = language === 'km' ? 'ច្រកចូលបរិវេណសាកលវិទ្យាល័យ' : 'Campus Main Entrance';
+      }
+
+      try {
+        const res = await api.get(
+          `/geo/directions?startLat=${startLat}&startLng=${startLng}&destLat=${destLat}&destLng=${destLng}&mode=${mode}&lang=${language}`
+        );
+
+        if (res.data.success && res.data.data) {
+          const d = res.data.data;
+          const smartRoutes: RouteOption[] = d.routes || [];
+          const activeId = 'fastest_clear';
+          const activeOption = smartRoutes.find((r) => r.id === activeId) || smartRoutes[0];
+
+          const newRoute: RouteData = {
+            destinationName: destName,
+            startName,
+            distance: activeOption ? activeOption.distance : d.distance,
+            duration: activeOption ? activeOption.duration : d.duration,
+            mode,
+            trafficLevel: activeOption ? activeOption.trafficLevel : (d.trafficLevel || 'smooth'),
+            trafficLabel: activeOption ? activeOption.trafficLabel : (d.trafficLabel || (language === 'km' ? 'រលូនល្អ • គ្មានការកកស្ទះ' : 'Free Flowing • No Congestion')),
+            trafficBadgeColor: activeOption ? activeOption.trafficBadgeColor : (d.trafficBadgeColor || 'emerald'),
+            activeRouteId: activeId,
+            routes: smartRoutes,
+            coordinates: activeOption ? activeOption.coordinates : d.coordinates,
+            steps: activeOption ? activeOption.steps : d.steps,
+            isUsingUserLocation: hasUserGps,
+            destinationLat: destLat,
+            destinationLng: destLng,
+          };
+          setRouteData(newRoute);
+          setIsRoutePanelCollapsed(false);
+          setMobileTab('map');
+          setTimeout(() => {
+            mapInstanceRef.current?.invalidateSize();
+          }, 150);
+          renderRouteOnMap(newRoute);
+        } else {
+          setRoutingError(res.data.error || 'Failed to calculate route');
+        }
+      } catch (err: any) {
+        console.error('Routing error:', err);
+        setRoutingError(err.message || 'Error requesting directions');
+      } finally {
+        setIsRoutingLoading(false);
+      }
+    },
+    [userCoords, currentCampus, language, selectedRouteMode, renderRouteOnMap]
+  );
+
+  // Keep ref up to date for delegated Leaflet popup clicks
+  startInAppRoutingRef.current = startInAppRouting;
+
+  const handleUseMyLocationForRouting = () => {
+    if (navigator.geolocation) {
+      setIsRoutingLoading(true);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude, accuracy } = pos.coords;
+          const coords = { lat: latitude, lng: longitude, accuracy, timestamp: pos.timestamp };
+          setUserCoords(coords);
+          updateUserLocationOnMap(latitude, longitude, accuracy, false);
+          if (activeDestinationRef.current) {
+            startInAppRouting(
+              activeDestinationRef.current.lat,
+              activeDestinationRef.current.lng,
+              activeDestinationRef.current.name,
+              selectedRouteMode
+            );
+          }
+        },
+        (err) => {
+          setIsRoutingLoading(false);
+          handleLocationError(err);
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    }
+  };
+
   return (
-    <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row h-[780px] relative">
-      {/* Mobile Drawer Toggle Button */}
-      <div className="md:hidden p-3 bg-slate-100 border-b border-slate-200 flex items-center justify-between z-20">
-        <button
-          onClick={() => setIsSidebarOpenMobile(!isSidebarOpenMobile)}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 shadow-xs"
-        >
-          {isSidebarOpenMobile ? <PanelLeftClose className="w-4 h-4 text-brand-600" /> : <PanelLeftOpen className="w-4 h-4 text-brand-600" />}
-          {isSidebarOpenMobile ? 'Hide Facilities' : 'Show Facilities List'}
-        </button>
-        <span className="text-xs font-semibold text-slate-600">
-          {filteredBuildings.length} Facilities
-        </span>
+    <div className="bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col md:flex-row h-[580px] sm:h-[660px] lg:h-[740px] max-h-[85vh] relative w-full max-w-full">
+      {/* Mobile Mode Segmented Switcher (Visible on Mobile) */}
+      <div className="md:hidden p-2 bg-slate-100 border-b border-slate-200 flex items-center justify-between gap-2 z-20 shrink-0">
+        <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 shadow-xs flex-1">
+          <button
+            type="button"
+            onClick={() => {
+              setMobileTab('map');
+              setTimeout(() => {
+                mapInstanceRef.current?.invalidateSize();
+              }, 150);
+            }}
+            className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+              mobileTab === 'map'
+                ? 'bg-brand-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Compass className="w-3.5 h-3.5" />
+            <span>{language === 'km' ? 'ផែនទី' : 'Map'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileTab('facilities')}
+            className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+              mobileTab === 'facilities'
+                ? 'bg-brand-600 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Building className="w-3.5 h-3.5" />
+            <span>{language === 'km' ? 'បញ្ជីអគារ' : 'Facilities'} ({filteredBuildings.length})</span>
+          </button>
+        </div>
       </div>
 
-      {/* Left Sidebar (35-40% desktop split-screen design) */}
+      {/* Left Sidebar (Facilities list: 100% on mobile when selected, 360px-420px on desktop) */}
       <div
         className={`${
-          isSidebarOpenMobile ? 'flex' : 'hidden'
-        } md:flex w-full md:w-[38%] lg:w-[35%] flex-col border-r border-slate-200 bg-slate-50/60 z-10 transition-all`}
+          mobileTab === 'facilities' ? 'flex' : 'hidden'
+        } md:flex w-full md:w-[360px] lg:w-[400px] xl:w-[420px] shrink-0 flex-col border-r border-slate-200 bg-slate-50/60 z-10 transition-all h-full overflow-hidden`}
       >
         {/* Campus & Search Controls Header */}
         <div className="p-4 border-b border-slate-200 space-y-3 bg-white">
@@ -651,6 +1159,57 @@ export const CampusMap: React.FC<CampusMapProps> = ({
               </option>
             ))}
           </select>
+
+          {/* User Current Administrative Location Badge (Village, Sangkat, Khan) */}
+          {userCoords && (
+            <div className="bg-gradient-to-r from-blue-50/90 via-indigo-50/80 to-blue-50/90 border border-blue-200/80 rounded-xl p-2.5 text-xs text-slate-800 space-y-1 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 font-bold text-blue-900 text-xs">
+                  <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                  <span>{t.map.administrativeArea}</span>
+                </div>
+                <span className="font-mono text-[9px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.2 rounded-full border border-blue-200">
+                  ±{Math.round(userCoords.accuracy)}m
+                </span>
+              </div>
+              {userAdminAddress?.loading ? (
+                <div className="flex items-center gap-1.5 text-[11px] text-blue-600 animate-pulse pl-5">
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  <span>{t.map.loadingAddress}</span>
+                </div>
+              ) : userAdminAddress?.sangkat || userAdminAddress?.khan ? (
+                <div className="text-[11px] text-slate-700 pl-5 space-y-0.5 leading-snug">
+                  {userAdminAddress.village && (
+                    <div>
+                      <span className="font-bold text-slate-900">{t.map.village}:</span>{' '}
+                      <span className="text-blue-900 font-bold">{userAdminAddress.village}</span>
+                    </div>
+                  )}
+                  {userAdminAddress.sangkat && (
+                    <div>
+                      <span className="font-bold text-slate-900">{t.map.sangkat}:</span>{' '}
+                      <span className="text-indigo-900 font-bold">{userAdminAddress.sangkat}</span>
+                    </div>
+                  )}
+                  {userAdminAddress.khan && (
+                    <div>
+                      <span className="font-bold text-slate-900">{t.map.khan}:</span>{' '}
+                      <span className="text-purple-900 font-bold">{userAdminAddress.khan}</span>
+                    </div>
+                  )}
+                  {userAdminAddress.city && (
+                    <div className="text-[10px] text-slate-500 pt-0.5">
+                      {userAdminAddress.city} {userAdminAddress.road ? `(${userAdminAddress.road})` : ''}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-[11px] text-slate-500 pl-5 font-mono">
+                  GPS: {userCoords.lat.toFixed(5)}, {userCoords.lng.toFixed(5)}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Search Box with Clear Button */}
           <div className="relative">
@@ -759,9 +1318,27 @@ export const CampusMap: React.FC<CampusMapProps> = ({
                     <span className="text-slate-400 font-mono">
                       {Number(b.latitude).toFixed(4)}, {Number(b.longitude).toFixed(4)}
                     </span>
-                    <span className="text-brand-600 font-bold hover:underline flex items-center gap-0.5">
-                      {t.map.viewOnMap} →
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startInAppRouting(
+                            Number(b.latitude),
+                            Number(b.longitude),
+                            language === 'km' ? b.name_km : b.name_en
+                          );
+                        }}
+                        className="text-brand-700 hover:text-white bg-brand-50 hover:bg-brand-600 border border-brand-200 px-2 py-0.5 rounded-md font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                        title={t.map.getDirections}
+                      >
+                        <Navigation className="w-3 h-3" />
+                        {t.map.getDirections}
+                      </button>
+                      <span className="text-slate-400 font-bold hover:underline flex items-center gap-0.5">
+                        {t.map.viewOnMap} →
+                      </span>
+                    </div>
                   </div>
                 </div>
               );
@@ -770,95 +1347,19 @@ export const CampusMap: React.FC<CampusMapProps> = ({
         </div>
       </div>
 
-      {/* Main Interactive Map (60-65% desktop split-screen design) */}
-      <div className="flex-1 relative flex flex-col h-full">
-        <div ref={mapContainerRef} className="w-full h-full z-0" />
-
-        {/* Top Floating Controls: My Location Action Bar */}
-        <div className="absolute top-4 left-4 z-10 flex flex-wrap items-center gap-2">
-          {/* Primary My Location Button */}
-          <button
-            onClick={handleGetLocation}
-            disabled={locationStatus === 'loading'}
-            data-testid="my-location-btn"
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-2xl border shadow-md font-bold text-xs transition-all ${
-              locationStatus === 'loading'
-                ? 'bg-blue-50 border-blue-300 text-blue-700 cursor-wait'
-                : userCoords
-                ? 'bg-blue-600 border-blue-700 text-white hover:bg-blue-700 hover:shadow-lg'
-                : 'bg-white/95 backdrop-blur-md border-slate-200 text-slate-800 hover:bg-slate-50 hover:border-slate-300'
-            }`}
-            title="My Location (ទីតាំងរបស់ខ្ញុំ)"
-          >
-            {locationStatus === 'loading' ? (
-              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-            ) : (
-              <LocateFixed className={`w-4 h-4 ${userCoords ? 'text-white' : 'text-blue-600'}`} />
-            )}
-            <div className="flex flex-col text-left">
-              <span className="leading-tight">{t.map.myLocation}</span>
-              <span className="text-[9px] opacity-75 font-normal leading-tight">
-                {language === 'km' ? 'My Location' : 'ទីតាំងរបស់ខ្ញុំ'}
-              </span>
-            </div>
-            {userCoords && (
-              <span className="ml-1 text-[10px] font-mono bg-blue-500/80 text-white px-1.5 py-0.2 rounded-md">
-                ±{Math.round(userCoords.accuracy)}m
-              </span>
-            )}
-          </button>
-
-          {/* Follow Mode Toggle Button (Appears when location is active) */}
-          {userCoords && (
-            <button
-              onClick={toggleFollowLocation}
-              data-testid="follow-location-btn"
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-2xl border shadow-md font-bold text-xs transition-all ${
-                isFollowingLocation
-                  ? 'bg-emerald-600 border-emerald-700 text-white hover:bg-emerald-700'
-                  : 'bg-white/95 backdrop-blur-md border-slate-200 text-slate-700 hover:bg-slate-50'
-              }`}
-              title={isFollowingLocation ? t.map.stopFollowing : t.map.followLocation}
-            >
-              <Radio className={`w-3.5 h-3.5 ${isFollowingLocation ? 'animate-pulse text-white' : 'text-slate-400'}`} />
-              <span>{isFollowingLocation ? t.map.following : t.map.followLocation}</span>
-            </button>
-          )}
-
-          {/* Privacy Note Info Trigger */}
-          <div className="relative">
-            <button
-              onClick={() => setShowPrivacyNotice(!showPrivacyNotice)}
-              className="w-8 h-8 rounded-xl bg-white/95 backdrop-blur-md border border-slate-200 hover:bg-slate-50 text-slate-500 flex items-center justify-center shadow-xs transition-colors"
-              title="Privacy Notice / ការការពារទិន្នន័យផ្ទាល់ខ្លួន"
-            >
-              <Info className="w-4 h-4 text-slate-500" />
-            </button>
-
-            {showPrivacyNotice && (
-              <div className="absolute left-0 mt-2 w-72 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-200 p-3.5 text-xs text-slate-700 z-30 space-y-1.5">
-                <div className="flex items-center justify-between font-bold text-slate-900 text-xs">
-                  <span>Privacy Notice</span>
-                  <button onClick={() => setShowPrivacyNotice(false)} className="text-slate-400 hover:text-slate-600">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  {t.map.privacyExplain}
-                </p>
-                <div className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-1.5 font-medium">
-                  {t.map.locationPrivacyNotice}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
+      {/* Main Interactive Map (Desktop split or Mobile Map Tab) */}
+      <div
+        className={`${
+          mobileTab === 'map' ? 'flex' : 'hidden'
+        } md:flex flex-1 relative flex-col h-full min-w-0 overflow-hidden`}
+      >
+        <div ref={mapContainerRef} className="w-full h-full z-0 min-h-0" />
 
         {/* Location Error & Permission Denial Alert Banner */}
         {locationError && (
           <div
             data-testid="location-error-alert"
-            className="absolute top-16 left-4 right-4 md:right-auto md:max-w-md z-20 bg-white/95 backdrop-blur-md border border-rose-200 rounded-2xl shadow-xl p-4 text-xs text-slate-800 space-y-2.5 animate-in fade-in slide-in-from-top-2"
+            className="absolute top-4 left-4 right-4 md:right-auto md:max-w-md z-20 bg-white/95 backdrop-blur-md border border-rose-200 rounded-2xl shadow-xl p-4 text-xs text-slate-800 space-y-2.5 animate-in fade-in slide-in-from-top-2"
           >
             <div className="flex items-start justify-between gap-2">
               <div className="flex items-start gap-2.5">
@@ -927,6 +1428,347 @@ export const CampusMap: React.FC<CampusMapProps> = ({
           </div>
         )}
 
+        {/* In-App Routing Loading Badge */}
+        {isRoutingLoading && (
+          <div className="absolute top-4 left-4 z-30 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-blue-200 p-3.5 flex items-center gap-2.5 text-xs font-bold text-slate-800 animate-pulse pointer-events-auto">
+            <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />
+            <span>{t.map.calculatingRoute}</span>
+          </div>
+        )}
+
+        {/* In-App Routing Error Alert */}
+        {routingError && (
+          <div className="absolute top-4 left-4 z-30 max-w-sm bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-rose-200 p-3 text-xs text-rose-800 flex items-center justify-between gap-2 pointer-events-auto">
+            <div className="flex items-center gap-1.5">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{routingError}</span>
+            </div>
+            <button
+              onClick={() => setRoutingError(null)}
+              className="text-slate-400 hover:text-slate-600 p-1"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Floating In-App Navigation / Directions Panel */}
+        {routeData && (
+          isRoutePanelCollapsed ? (
+            /* Collapsed / Minimized Pill */
+            <div className="absolute top-4 left-4 z-30 max-w-sm sm:max-w-md w-[calc(100%-2rem)] sm:w-auto bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-blue-200 p-2 sm:p-2.5 flex items-center justify-between gap-3 pointer-events-auto transition-all animate-in fade-in slide-in-from-top-2">
+              <button
+                type="button"
+                onClick={() => setIsRoutePanelCollapsed(false)}
+                className="flex items-center gap-2.5 text-left flex-1 min-w-0 group cursor-pointer"
+                title={t.map.expandRoute}
+              >
+                <div className="relative w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+                  <Route className="w-4 h-4" />
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-white animate-pulse" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-extrabold text-xs text-slate-900 truncate max-w-[140px] sm:max-w-[200px]">
+                      {routeData.destinationName}
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded-md shrink-0">
+                      {routeData.trafficBadgeColor === 'emerald' ? '🟢 ' : '🟡 '}
+                      {routeData.distance >= 1000 ? `${(routeData.distance / 1000).toFixed(1)} km` : `${routeData.distance} m`}
+                      {' • '}
+                      {Math.ceil(routeData.duration / 60)} {language === 'km' ? 'នាទី' : 'min'}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-blue-600 font-semibold group-hover:underline flex items-center gap-1 mt-0.5">
+                    <Maximize2 className="w-3 h-3 inline" />
+                    <span>{t.map.expandRoute}</span>
+                  </p>
+                </div>
+              </button>
+
+              <div className="flex items-center gap-1 border-l border-slate-200 pl-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsRoutePanelCollapsed(false)}
+                  className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                  title={t.map.expandRoute}
+                  aria-label={t.map.expandRoute}
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">{t.map.showPanel}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={clearRoute}
+                  className="p-1.5 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                  title={t.map.clearRoute}
+                  aria-label={t.map.clearRoute}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Full Expanded Navigation Card */
+            <div className="absolute top-4 left-4 z-30 max-w-sm sm:max-w-md w-[calc(100%-2rem)] sm:w-96 bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-blue-200 overflow-hidden pointer-events-auto transition-all animate-in fade-in slide-in-from-top-2">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-blue-700 to-indigo-700 text-white p-3.5 flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-white/20 flex items-center justify-center shrink-0">
+                    <Route className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <h4 className="font-extrabold text-xs tracking-tight truncate">
+                      {t.map.navigation}
+                    </h4>
+                    <p className="text-[10px] text-blue-100 font-medium truncate">
+                      {routeData.isUsingUserLocation ? t.map.usingMyLocation : t.map.usingCampusEntrance}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  {/* Minimize / Hide Button */}
+                  <button
+                    type="button"
+                    onClick={() => setIsRoutePanelCollapsed(true)}
+                    className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/25 active:scale-95 text-white flex items-center justify-center transition-all cursor-pointer"
+                    title={t.map.minimizeRoute}
+                    aria-label={t.map.minimizeRoute}
+                  >
+                    <Minimize2 className="w-3.5 h-3.5" />
+                  </button>
+                  {/* Clear Route Button */}
+                  <button
+                    type="button"
+                    onClick={clearRoute}
+                    className="w-7 h-7 rounded-lg bg-white/10 hover:bg-rose-500/80 active:scale-95 text-white flex items-center justify-center transition-all cursor-pointer"
+                    title={t.map.clearRoute}
+                    aria-label={t.map.clearRoute}
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+            {/* Origin & Destination summary */}
+            <div className="p-3.5 space-y-3 text-xs">
+              <div className="space-y-1.5 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                <div className="flex items-center gap-2 text-slate-600">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 ring-2 ring-emerald-200" />
+                  <span className="font-semibold text-[11px] truncate">{routeData.startName}</span>
+                </div>
+                <div className="ml-1 w-0.5 h-2 bg-slate-200" />
+                <div className="flex items-center gap-2 text-slate-900">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0 ring-2 ring-rose-200" />
+                  <span className="font-bold text-[11px] truncate">{routeData.destinationName}</span>
+                </div>
+              </div>
+
+              {/* Smart Multi-Route Selection (Fastest & Avoid Traffic vs Shortest) */}
+              {routeData.routes && routeData.routes.length > 1 && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+                    <span className="flex items-center gap-1 text-slate-800">
+                      <Zap className="w-3.5 h-3.5 text-amber-500" />
+                      {t.map.routeOptions}
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded-md">
+                      {routeData.trafficLabel}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                    {routeData.routes.map((opt) => {
+                      const isSelected = opt.id === routeData.activeRouteId;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => selectRouteOption(opt.id)}
+                          className={`p-2 rounded-xl text-left border transition-all cursor-pointer flex flex-col justify-between ${
+                            isSelected
+                              ? 'bg-blue-50/90 border-blue-400 ring-2 ring-blue-300 shadow-xs'
+                              : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-center justify-between gap-1">
+                              <span className={`text-[10.5px] font-black truncate ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}>
+                                {opt.id === 'fastest_clear' && '⚡ '}
+                                {opt.id === 'shortest' && '📏 '}
+                                {opt.id === 'bypass' && '🛡️ '}
+                                {opt.name}
+                              </span>
+                              {opt.badge && (
+                                <span className={`text-[9px] px-1 py-0.2 rounded font-black shrink-0 ${
+                                  opt.isRecommended ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+                                }`}>
+                                  {opt.badge}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[9px] text-slate-500 mt-0.5 line-clamp-1">{opt.subtitle}</p>
+                          </div>
+
+                          <div className="mt-2 pt-1.5 border-t border-slate-100/80 flex items-center justify-between text-[10px] font-mono">
+                            <span className={`font-bold ${isSelected ? 'text-blue-700' : 'text-slate-700'}`}>
+                              {opt.distance >= 1000 ? `${(opt.distance / 1000).toFixed(1)}km` : `${opt.distance}m`}
+                            </span>
+                            <span className="text-slate-500">
+                              {Math.ceil(opt.duration / 60)} {language === 'km' ? 'នាទី' : 'min'}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Traffic Avoidance & Condition Notice */}
+              <div
+                className={`p-2.5 rounded-xl border text-[11px] flex items-start gap-2 ${
+                  routeData.trafficBadgeColor === 'emerald'
+                    ? 'bg-emerald-50/90 border-emerald-200 text-emerald-900'
+                    : 'bg-amber-50/90 border-amber-200 text-amber-900'
+                }`}
+              >
+                <div className="mt-0.5 shrink-0">
+                  {routeData.trafficBadgeColor === 'emerald' ? (
+                    <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  ) : (
+                    <Clock className="w-4 h-4 text-amber-600" />
+                  )}
+                </div>
+                <div className="flex-1 leading-snug">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <span>{t.map.trafficStatus}:</span>
+                    <span className="underline decoration-dotted">{routeData.trafficLabel}</span>
+                  </div>
+                  <p className="text-[10px] opacity-90 mt-0.5">
+                    {routeData.activeRouteId === 'fastest_clear' || routeData.trafficBadgeColor === 'emerald'
+                      ? t.map.trafficBypassNotice
+                      : language === 'km'
+                      ? 'ផ្លូវកាត់ខ្លីនេះជួយកាត់បន្ថយចម្ងាយធ្វើដំណើរ ប៉ុន្តែអាចមានការយឺតយ៉ាវនៅចំណុចប្រសព្វធំៗ។'
+                      : 'This direct path minimizes physical distance, but may experience intersection delays.'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Stats Bar */}
+              <div className="grid grid-cols-2 gap-2 text-center">
+                <div className="bg-blue-50/80 border border-blue-100 p-2 rounded-xl">
+                  <div className="text-[10px] text-blue-700 font-semibold">{t.map.distance}</div>
+                  <div className="text-sm font-black text-blue-950 mt-0.5">
+                    {routeData.distance >= 1000
+                      ? `${(routeData.distance / 1000).toFixed(1)} km`
+                      : `${routeData.distance} m`}
+                  </div>
+                </div>
+                <div className="bg-indigo-50/80 border border-indigo-100 p-2 rounded-xl">
+                  <div className="text-[10px] text-indigo-700 font-semibold">{t.map.estimatedTime}</div>
+                  <div className="text-sm font-black text-indigo-950 mt-0.5">
+                    {Math.ceil(routeData.duration / 60)} {language === 'km' ? 'នាទី' : 'min'}
+                  </div>
+                </div>
+              </div>
+
+              {/* If using campus entrance, prompt to use GPS */}
+              {!routeData.isUsingUserLocation && (
+                <button
+                  type="button"
+                  onClick={handleUseMyLocationForRouting}
+                  className="w-full py-1.5 px-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 text-[11px] font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <LocateFixed className="w-3.5 h-3.5 text-amber-600" />
+                  {t.map.useMyLocationInstead}
+                </button>
+              )}
+
+              {/* Turn-by-Turn Steps Accordion */}
+              {routeData.steps && routeData.steps.length > 0 && (
+                <div className="pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowTurnByTurn(!showTurnByTurn)}
+                    className="w-full flex items-center justify-between text-[11px] font-bold text-slate-700 hover:text-blue-700 py-1 cursor-pointer"
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Navigation className="w-3 h-3 text-blue-600" />
+                      {t.map.turnByTurn} ({routeData.steps.length})
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showTurnByTurn ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {showTurnByTurn && (
+                    <div className="mt-2 max-h-44 overflow-y-auto space-y-1.5 pr-1 divide-y divide-slate-100">
+                      {routeData.steps.map((st, idx) => (
+                        <div key={idx} className="pt-1.5 first:pt-0 flex items-start gap-2 text-[11px]">
+                          <span
+                            className={`w-4 h-4 rounded-full font-bold text-[9px] flex items-center justify-center shrink-0 mt-0.5 ${
+                              st.trafficStatus === 'moderate'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
+                            {idx + 1}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-semibold text-slate-800 leading-snug">{st.instruction}</p>
+                              {st.trafficStatus === 'moderate' && (
+                                <span className="text-[9px] font-bold px-1 rounded bg-amber-100 text-amber-800 shrink-0">
+                                  {language === 'km' ? 'ចរាចរណ៍មធ្យម' : 'Busy'}
+                                </span>
+                              )}
+                            </div>
+                            {st.distance > 0 && (
+                              <p className="text-[10px] text-slate-400 mt-0.5 font-mono">
+                                {st.distance} m ({Math.ceil(st.duration / 60)} min)
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Footer Actions */}
+              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
+                <a
+                  href={`https://www.google.com/maps/dir/?api=1&destination=${routeData.destinationLat},${routeData.destinationLng}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-500 hover:text-brand-600 font-semibold flex items-center gap-1"
+                >
+                  {t.map.openInGoogleMaps} <ExternalLink className="w-3 h-3" />
+                </a>
+                <div className="flex items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsRoutePanelCollapsed(true)}
+                    className="text-slate-500 hover:text-blue-700 font-bold flex items-center gap-1 hover:underline cursor-pointer"
+                    title={t.map.minimizeRoute}
+                  >
+                    <EyeOff className="w-3.5 h-3.5" />
+                    <span>{t.map.hidePanel}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearRoute}
+                    className="text-rose-600 hover:text-rose-700 font-bold hover:underline cursor-pointer"
+                  >
+                    {t.map.clearRoute}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      )}
+
         {/* Custom Map Navigation Controls Stack (Zoom & Quick Location) */}
         <div className="absolute top-4 right-4 z-10 flex flex-col gap-1.5 shadow-lg">
           <button
@@ -975,25 +1817,28 @@ export const CampusMap: React.FC<CampusMapProps> = ({
         {/* Floating Map Legend Card */}
         <div className="absolute bottom-4 right-4 z-10 bg-white/95 backdrop-blur-md p-3.5 rounded-2xl shadow-xl border border-slate-200 text-[11px] space-y-1.5 pointer-events-auto">
           <div className="font-extrabold text-slate-900 text-xs mb-1 flex items-center gap-1.5">
-            <Layers className="w-3.5 h-3.5 text-brand-600" /> RUPP Facilities & Navigation
+            <Layers className="w-3.5 h-3.5 text-brand-600" />
+            <span className="truncate max-w-[200px]">
+              {language === 'km' ? 'ទីតាំងអគារ និងការរុករក' : 'Campus Facilities & Navigation'}
+            </span>
           </div>
           <div className="flex items-center gap-2 text-slate-600">
-            <span className="w-3 h-3 rounded-md bg-purple-600"></span> Cooperation Centers (CJCC, CKCC)
+            <span className="w-3 h-3 rounded-md bg-purple-600"></span> {t.map.cooperationCenter}
           </div>
           <div className="flex items-center gap-2 text-slate-600">
-            <span className="w-3 h-3 rounded-md bg-emerald-600"></span> Library (Hun Sen Library)
+            <span className="w-3 h-3 rounded-md bg-emerald-600"></span> {t.map.library}
           </div>
           <div className="flex items-center gap-2 text-slate-600">
-            <span className="w-3 h-3 rounded-md bg-amber-600"></span> STEM & Computer Labs
+            <span className="w-3 h-3 rounded-md bg-amber-600"></span> {t.map.lab}
           </div>
           <div className="flex items-center gap-2 text-slate-600">
-            <span className="w-3 h-3 rounded-md bg-teal-700"></span> Administration & Rectorate
+            <span className="w-3 h-3 rounded-md bg-teal-700"></span> {language === 'km' ? 'រដ្ឋបាល' : 'Administration'}
           </div>
           <div className="flex items-center gap-2 text-slate-600">
-            <span className="w-3 h-3 rounded-md bg-slate-600"></span> Parking Zones
+            <span className="w-3 h-3 rounded-md bg-slate-600"></span> {language === 'km' ? 'ចំណតយានយន្ត' : 'Parking Zones'}
           </div>
           <div className="flex items-center gap-2 text-slate-600">
-            <span className="w-3 h-3 rounded-full bg-rose-600"></span> Published Campus Events
+            <span className="w-3 h-3 rounded-full bg-rose-600"></span> {language === 'km' ? 'ព្រឹត្តិការណ៍បរិវេណ' : 'Campus Events'}
           </div>
           {userCoords && (
             <div className="flex items-center gap-2 text-blue-700 font-bold pt-1 border-t border-slate-100">

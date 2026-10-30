@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { closePool, getPool } from './connection.js';
+import { CAMBODIA_UNIVERSITIES } from './cambodia_universities_data.js';
 
 export async function runSeeds(dbName?: string): Promise<void> {
   const targetDb = dbName || (process.env.NODE_ENV === 'test' ? 'campusconnect_test' : 'campusconnect');
@@ -21,8 +22,9 @@ export async function runSeeds(dbName?: string): Promise<void> {
     // 1. Password hashing
     const passwordHash = await bcrypt.hash('Password123!', 10);
 
-    // 2. Clear existing records safely
+    // 2. Clear existing records safely and reset AUTO_INCREMENT counters
     await conn.query('SET FOREIGN_KEY_CHECKS = 0;');
+    await conn.query('DELETE FROM user_sessions;');
     await conn.query('DELETE FROM password_resets;');
     await conn.query('DELETE FROM audit_logs;');
     await conn.query('DELETE FROM notifications;');
@@ -34,6 +36,14 @@ export async function runSeeds(dbName?: string): Promise<void> {
     await conn.query('DELETE FROM campuses;');
     await conn.query('DELETE FROM users;');
     await conn.query('DELETE FROM universities;');
+
+    await conn.query('ALTER TABLE universities AUTO_INCREMENT = 1;');
+    await conn.query('ALTER TABLE users AUTO_INCREMENT = 1;');
+    await conn.query('ALTER TABLE campuses AUTO_INCREMENT = 1;');
+    await conn.query('ALTER TABLE buildings AUTO_INCREMENT = 1;');
+    await conn.query('ALTER TABLE events AUTO_INCREMENT = 1;');
+    await conn.query('ALTER TABLE event_registrations AUTO_INCREMENT = 1;');
+    await conn.query('ALTER TABLE audit_logs AUTO_INCREMENT = 1;');
     await conn.query('SET FOREIGN_KEY_CHECKS = 1;');
 
   // 3. Insert Universities (Multi-University from day 1)
@@ -214,6 +224,35 @@ export async function runSeeds(dbName?: string): Promise<void> {
       NOW()
     )
   `, [itcId]);
+  const itcCampusId = itcCampusResult.insertId;
+
+  // ITC Main Building
+  await query(`
+    INSERT INTO buildings (
+      campus_id, code, name_en, name_km, category,
+      description_en, description_km, latitude, longitude,
+      floors, is_accessible, source_url, source_type,
+      verification_status, data_classification, verified_at, last_verified_by
+    ) VALUES (
+      ?,
+      'ITC-BLDA',
+      'Building A (Main Administration & Engineering)',
+      'អគារ A (អគាររដ្ឋបាល និងវិស្វកម្មកណ្តាល)',
+      'administrative',
+      'Central administrative block and engineering department classrooms of ITC.',
+      'អគាររដ្ឋបាលកណ្តាល និងបន្ទប់សិក្សាផ្នែកវិស្វកម្មនៃវិទ្យាស្ថានបច្ចេកវិទ្យាកម្ពុជា។',
+      11.57140000,
+      104.89880000,
+      3,
+      TRUE,
+      'https://www.itc.edu.kh/',
+      'openstreetmap',
+      'verified',
+      'verified_public',
+      NOW(),
+      ?
+    )
+  `, [itcCampusId, platformAdminId]);
 
   // 7. Buildings (with verified coordinates from OpenStreetMap and RUPP official portals)
   // Building 1: CJCC
@@ -595,6 +634,116 @@ export async function runSeeds(dbName?: string): Promise<void> {
     INSERT INTO audit_logs (user_id, university_id, action, entity_type, entity_id, details)
     VALUES (?, ?, 'INITIAL_SEED', 'SYSTEM', 1, JSON_OBJECT('message', 'RUPP pilot institution and verified buildings seeded.'))
   `, [platformAdminId, ruppId]);
+
+  // 12. Seed Complete Cambodian Universities Directory & Main Campuses
+  console.log(`[Seeds] Seeding ${CAMBODIA_UNIVERSITIES.length} additional Cambodian universities & campuses...`);
+  for (const uni of CAMBODIA_UNIVERSITIES) {
+    const uniRes: any = await query(`
+      INSERT INTO universities (
+        slug, name_en, name_km, acronym, official_website,
+        logo_url, description_en, description_km, address_en, address_km,
+        phone, email, is_active, source_url, source_type, verification_status,
+        data_classification, verified_at
+      ) VALUES (
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?,
+        ?, ?, TRUE, ?, 'official_website', 'verified',
+        'verified_public', NOW()
+      )
+    `, [
+      uni.slug,
+      uni.nameEn,
+      uni.nameKm,
+      uni.acronym,
+      uni.officialWebsite,
+      uni.logoUrl || null,
+      uni.descriptionEn,
+      uni.descriptionKm,
+      uni.addressEn,
+      uni.addressKm,
+      uni.phone,
+      uni.email,
+      uni.officialWebsite,
+    ]);
+    const uniId = uniRes.insertId;
+
+    // Seed main campus with exact verified GPS coordinates
+    const campusRes: any = await query(`
+      INSERT INTO campuses (
+        university_id, slug, name_en, name_km, address_en, address_km,
+        latitude, longitude, is_main, source_url, source_type, verification_status, verified_at
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?,
+        ?, ?, TRUE, ?, 'openstreetmap', 'verified', NOW()
+      )
+    `, [
+      uniId,
+      `${uni.slug}-main`,
+      `${uni.nameEn} Main Campus`,
+      `${uni.nameKm} មណ្ឌលធំ`,
+      uni.addressEn,
+      uni.addressKm,
+      uni.latitude,
+      uni.longitude,
+      uni.officialWebsite,
+    ]);
+    const campusId = campusRes.insertId;
+
+    // Seed main verified building so facilities/map always displays
+    await query(`
+      INSERT INTO buildings (
+        campus_id, code, name_en, name_km, category,
+        description_en, description_km, latitude, longitude,
+        floors, is_accessible, source_url, source_type,
+        verification_status, data_classification, verified_at, last_verified_by
+      ) VALUES (
+        ?, ?, ?, ?, ?,
+        ?, ?, ?, ?,
+        3, TRUE, ?, 'openstreetmap',
+        'verified', 'verified_public', NOW(), ?
+      )
+    `, [
+      campusId,
+      uni.buildingCode,
+      uni.buildingNameEn,
+      uni.buildingNameKm,
+      uni.buildingCategory,
+      `${uni.buildingNameEn} located at ${uni.nameEn}.`,
+      `${uni.buildingNameKm} ស្ថិតនៅ ${uni.nameKm}។`,
+      uni.latitude,
+      uni.longitude,
+      uni.officialWebsite,
+      platformAdminId,
+    ]);
+
+    // Seed welcoming academic orientation event for the university
+    await query(`
+      INSERT INTO events (
+        university_id, campus_id, building_id, organizer_id, slug,
+        title_en, title_km, category, description_en, description_km,
+        room_or_venue_details, start_time, end_time, registration_deadline,
+        capacity, registered_count, status, event_verification, data_classification,
+        source_url, source_type, last_verified_at
+      ) VALUES (
+        ?, ?, NULL, ?, ?,
+        ?, ?, 'academic', ?, ?,
+        'Main Conference Hall',
+        '2026-11-20 08:30:00', '2026-11-20 12:00:00', '2026-11-19 23:59:00',
+        100, 0, 'published', 'confirmed', 'verified_public',
+        ?, 'official_website', NOW()
+      )
+    `, [
+      uniId,
+      campusId,
+      platformAdminId,
+      `${uni.slug}-orientation-2026`,
+      `${uni.acronym} Academic Orientation & Welcome 2026`,
+      `កម្មវិធីតម្រង់ទិសការសិក្សា និងស្វាគមន៍និស្សិតថ្មី ${uni.acronym} ឆ្នាំ២០២៦`,
+      `Official orientation ceremony for prospective and admitted students at ${uni.nameEn}.`,
+      `ពិធីតម្រង់ទិសការសិក្សាជាផ្លូវការសម្រាប់និស្សិតថ្មី និងនិស្សិតដែលមានបំណងបន្តការសិក្សានៅ ${uni.nameKm}។`,
+      uni.officialWebsite,
+    ]);
+  }
 
   console.log('[Seeds] Seeding completed successfully!');
   } finally {

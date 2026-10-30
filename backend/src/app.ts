@@ -1,31 +1,35 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 import { config } from './config/index.js';
 import { authenticate } from './middlewares/auth.js';
 import { query } from './database/connection.js';
 
 import authRoutes from './routes/auth.routes.js';
+import userRoutes from './routes/user.routes.js';
+import adminRoutes from './routes/admin.routes.js';
 import universityRoutes from './routes/university.routes.js';
 import campusRoutes from './routes/campus.routes.js';
 import buildingRoutes from './routes/building.routes.js';
 import eventRoutes from './routes/event.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import auditRoutes from './routes/audit.routes.js';
+import geoRoutes from './routes/geo.routes.js';
 
 export function createApp(): Express {
   const app = express();
 
-  // Helmet Security Headers (Specification Section 10)
+  // Helmet Security Headers
   app.use(
     helmet({
-      contentSecurityPolicy: false, // allow map tiles and external font loads
+      contentSecurityPolicy: false, // allow map tiles and fonts
       crossOriginEmbedderPolicy: false,
     })
   );
 
-  // Rate Limiting on Authentication Endpoints (Specification Section 6 & 10)
+  // Rate Limiting on Authentication Endpoints (protect against brute force)
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // max 100 attempts per window
@@ -38,7 +42,7 @@ export function createApp(): Express {
   app.use(
     cors({
       origin: (origin, callback) => {
-        // allow local dev origins
+        // Allow trusted origins and dev servers
         if (!origin || origin.includes('localhost') || origin.includes('127.0.0.1')) {
           callback(null, true);
         } else {
@@ -49,6 +53,7 @@ export function createApp(): Express {
     })
   );
 
+  app.use(cookieParser());
   app.use(express.json());
 
   // Health check
@@ -62,7 +67,7 @@ export function createApp(): Express {
     });
   });
 
-  // Dedicated My Registrations endpoint (Specification Section 9: GET /api/v1/me/registrations)
+  // Dedicated My Registrations endpoint (GET /api/v1/me/registrations)
   app.get('/api/v1/me/registrations', authenticate, async (req: Request, res: Response) => {
     const userId = req.user!.id;
     const registrations = await query(
@@ -86,12 +91,15 @@ export function createApp(): Express {
 
   // REST API Routes
   app.use('/api/v1/auth', authLimiter, authRoutes);
+  app.use('/api/v1/users', userRoutes);
+  app.use('/api/v1/admin', adminRoutes);
   app.use('/api/v1/universities', universityRoutes);
   app.use('/api/v1/campuses', campusRoutes);
   app.use('/api/v1/buildings', buildingRoutes);
   app.use('/api/v1/events', eventRoutes);
   app.use('/api/v1/dashboards', dashboardRoutes);
   app.use('/api/v1/audit-logs', auditRoutes);
+  app.use('/api/v1/geo', geoRoutes);
 
   // 404 Handler
   app.use((req: Request, res: Response) => {

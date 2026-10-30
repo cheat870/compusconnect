@@ -6,6 +6,7 @@ import { api } from './services/api.js';
 import Navbar from './components/Navbar.js';
 import Footer from './components/Footer.js';
 import AuthModal from './components/AuthModal.js';
+import ProfileModal from './components/ProfileModal.js';
 
 import HomePage from './pages/HomePage.js';
 import UniversitiesPage from './pages/UniversitiesPage.js';
@@ -35,6 +36,7 @@ function MainApp() {
   const [buildings, setBuildings] = useState<any[]>([]);
   const [events, setEvents] = useState<any[]>([]);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Load universities and initial data
@@ -140,17 +142,18 @@ function MainApp() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 font-sans">
+    <div className="min-h-screen flex flex-col bg-slate-50 font-sans w-full max-w-full overflow-x-hidden">
       <Navbar
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onOpenProfileModal={() => setIsProfileModalOpen(true)}
         selectedUniversityId={selectedUniversityId}
         onSelectUniversity={handleSelectUniversity}
         universities={universities}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8 overflow-x-hidden">
         {loading ? (
           <div className="p-20 text-center text-slate-500 text-xs">
             <div className="animate-spin w-8 h-8 border-3 border-brand-500 border-t-transparent rounded-full mx-auto mb-3" />
@@ -168,7 +171,12 @@ function MainApp() {
               />
             )}
 
-            {currentTab === 'universities' && <UniversitiesPage />}
+            {currentTab === 'universities' && (
+              <UniversitiesPage
+                onSelectUniversity={handleSelectUniversity}
+                onNavigate={setCurrentTab}
+              />
+            )}
 
             {currentTab === 'campuses' && (
               <CampusesPage
@@ -231,6 +239,11 @@ function MainApp() {
       <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
+      />
+
+      <ProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
       />
     </div>
   );

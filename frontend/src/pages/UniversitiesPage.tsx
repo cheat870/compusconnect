@@ -4,13 +4,22 @@ import { useAuth } from '../context/AuthContext.js';
 import { api } from '../services/api.js';
 import { Building2, CheckCircle2, ExternalLink, Plus, MapPin, Search } from 'lucide-react';
 
-export const UniversitiesPage: React.FC = () => {
+interface UniversitiesPageProps {
+  onSelectUniversity?: (id: number) => void;
+  onNavigate?: (tab: string) => void;
+}
+
+export const UniversitiesPage: React.FC<UniversitiesPageProps> = ({
+  onSelectUniversity,
+  onNavigate,
+}) => {
   const { language, t } = useLanguage();
   const { user } = useAuth();
 
   const [universities, setUniversities] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [regionFilter, setRegionFilter] = useState<'all' | 'phnom_penh' | 'provinces'>('all');
   const [showAddModal, setShowAddModal] = useState(false);
 
   // Form state for adding university
@@ -71,24 +80,41 @@ export const UniversitiesPage: React.FC = () => {
     }
   };
 
-  const filtered = universities.filter(
-    (u) =>
+  const isPhnomPenh = (u: any) =>
+    (u.address_en && u.address_en.toLowerCase().includes('phnom penh')) ||
+    (u.address_km && u.address_km.includes('ភ្នំពេញ'));
+
+  const filtered = universities.filter((u) => {
+    const matchesSearch =
       u.name_en.toLowerCase().includes(search.toLowerCase()) ||
       u.name_km.includes(search) ||
-      u.acronym.toLowerCase().includes(search.toLowerCase())
-  );
+      u.acronym.toLowerCase().includes(search.toLowerCase()) ||
+      (u.address_en && u.address_en.toLowerCase().includes(search.toLowerCase())) ||
+      (u.address_km && u.address_km.includes(search));
+
+    if (!matchesSearch) return false;
+
+    if (regionFilter === 'phnom_penh') return isPhnomPenh(u);
+    if (regionFilter === 'provinces') return !isPhnomPenh(u);
+    return true;
+  });
 
   return (
     <div className="space-y-6 pb-16">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-black text-slate-900">
-            {language === 'km' ? 'បញ្ជីសាកលវិទ្យាល័យ និងគ្រឹះស្ថានឧត្តមសិក្សា' : 'Higher Education Institutions'}
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-2xl font-black text-slate-900">
+              {language === 'km' ? 'បញ្ជីសាកលវិទ្យាល័យ និងគ្រឹះស្ថានឧត្តមសិក្សានៅកម្ពុជា' : 'Cambodian Higher Education Institutions'}
+            </h2>
+            <span className="text-xs font-black bg-blue-100 text-blue-800 border border-blue-200 px-2 py-0.5 rounded-full">
+              {universities.length} {language === 'km' ? 'សាកលវិទ្យាល័យ' : 'Institutions'}
+            </span>
+          </div>
           <p className="text-xs text-slate-500 mt-1">
             {language === 'km'
-              ? 'ប្រព័ន្ធពហុសាកលវិទ្យាល័យបើកចំហរ ដោយមាន RUPP ជាគ្រឹះស្ថានសាកល្បងទីមួយ'
-              : 'Multi-institution directory with Royal University of Phnom Penh (RUPP) as first pilot.'}
+              ? 'ប្រព័ន្ធពហុសាកលវិទ្យាល័យបើកចំហរទូទាំងប្រទេសកម្ពុជា ដោយមាន RUPP ជាគ្រឹះស្ថានសាកល្បងទីមួយ'
+              : 'Nationwide multi-institution directory covering universities across Cambodia with RUPP as first pilot.'}
           </p>
         </div>
 
@@ -102,16 +128,56 @@ export const UniversitiesPage: React.FC = () => {
         )}
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-md">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by university name or acronym..."
-          className="w-full pl-9 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 shadow-xs"
-        />
-        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+      {/* Search & Region Filter Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="relative max-w-md w-full">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={
+              language === 'km'
+                ? 'ស្វែងរកតាមឈ្មោះសាកលវិទ្យាល័យ អក្សរកាត់ ឬទីតាំង...'
+                : 'Search by university name, acronym, or location...'
+            }
+            className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 shadow-xs"
+          />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+        </div>
+
+        {/* Region Filter Buttons */}
+        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs shrink-0 self-start sm:self-auto">
+          <button
+            onClick={() => setRegionFilter('all')}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+              regionFilter === 'all'
+                ? 'bg-white text-brand-700 shadow-xs ring-1 ring-slate-200'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            {language === 'km' ? 'ទាំងអស់' : 'All'} ({universities.length})
+          </button>
+          <button
+            onClick={() => setRegionFilter('phnom_penh')}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+              regionFilter === 'phnom_penh'
+                ? 'bg-white text-brand-700 shadow-xs ring-1 ring-slate-200'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            {language === 'km' ? 'រាជធានីភ្នំពេញ' : 'Phnom Penh'} ({universities.filter(isPhnomPenh).length})
+          </button>
+          <button
+            onClick={() => setRegionFilter('provinces')}
+            className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+              regionFilter === 'provinces'
+                ? 'bg-white text-brand-700 shadow-xs ring-1 ring-slate-200'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            {language === 'km' ? 'តាមបណ្តាខេត្ត' : 'Provinces'} ({universities.filter((u) => !isPhnomPenh(u)).length})
+          </button>
+        </div>
       </div>
 
       {/* Institution Cards */}
@@ -126,7 +192,7 @@ export const UniversitiesPage: React.FC = () => {
                 key={u.id}
                 className={`p-6 rounded-2xl bg-white border ${
                   isPilot ? 'border-brand-300 ring-2 ring-brand-100 shadow-md' : 'border-slate-200 shadow-xs'
-                } flex flex-col justify-between space-y-4`}
+                } flex flex-col justify-between space-y-4 hover:shadow-md transition-shadow`}
               >
                 <div>
                   <div className="flex items-start justify-between gap-2">
@@ -151,7 +217,15 @@ export const UniversitiesPage: React.FC = () => {
                   </h3>
                   <p className="text-xs text-slate-400 font-mono mt-0.5">{u.name_en} ({u.acronym})</p>
 
-                  <p className="text-xs text-slate-600 mt-3 line-clamp-3 leading-relaxed">
+                  {/* Address */}
+                  {(u.address_km || u.address_en) && (
+                    <div className="flex items-start gap-1.5 mt-2.5 text-xs text-slate-500">
+                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                      <span className="line-clamp-1">{language === 'km' ? u.address_km : u.address_en}</span>
+                    </div>
+                  )}
+
+                  <p className="text-xs text-slate-600 mt-2.5 line-clamp-3 leading-relaxed">
                     {language === 'km' ? u.description_km : u.description_en}
                   </p>
 
@@ -171,18 +245,32 @@ export const UniversitiesPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
-                  <span className="text-slate-400 text-[11px] truncate max-w-[200px]" title={u.source_url}>
-                    Source: {u.source_url}
+                <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        if (onSelectUniversity) onSelectUniversity(u.id);
+                        if (onNavigate) onNavigate('campuses');
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-brand-50 hover:bg-brand-100 text-brand-700 font-bold text-xs flex items-center gap-1.5 transition-colors border border-brand-200"
+                    >
+                      <MapPin className="w-3.5 h-3.5" />
+                      {language === 'km' ? 'មើលលើផែនទី' : 'View Campus Map'}
+                    </button>
+
+                    <a
+                      href={u.official_website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-slate-600 hover:text-brand-600 font-semibold flex items-center gap-1 px-2 py-1.5"
+                    >
+                      Official Site <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+
+                  <span className="text-slate-400 text-[10px] truncate max-w-[160px]" title={u.source_url}>
+                    {u.phone || u.email || 'Verified Data'}
                   </span>
-                  <a
-                    href={u.official_website}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-brand-600 font-bold hover:underline flex items-center gap-1 shrink-0"
-                  >
-                    Official Site <ExternalLink className="w-3 h-3" />
-                  </a>
                 </div>
               </div>
             );

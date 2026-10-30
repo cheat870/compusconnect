@@ -12,6 +12,7 @@ export interface User {
   universityNameKm?: string;
   universityAcronym?: string;
   phone?: string;
+  studentIdNumber?: string;
 }
 
 interface AuthContextType {
@@ -20,7 +21,9 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (payload: any) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
+  updateProfile: (payload: { fullName?: string; fullNameKm?: string; phone?: string }) => Promise<void>;
+  changePassword: (payload: { currentPassword: string; newPassword: string; confirmPassword: string }) => Promise<void>;
   quickLoginAs: (role: 'admin' | 'rupp_admin' | 'rupp_organizer' | 'student') => Promise<void>;
 }
 
@@ -31,40 +34,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('campusconnect_token'));
   const [loading, setLoading] = useState<boolean>(true);
 
+  const fetchMe = async () => {
+    const savedToken = localStorage.getItem('campusconnect_token');
+    if (!savedToken) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const res = await api.get('/users/me');
+      if (res.data.success) {
+        const u = res.data.data;
+        setUser({
+          id: u.id,
+          email: u.email,
+          fullName: u.full_name,
+          fullNameKm: u.full_name_km,
+          role: u.role,
+          universityId: u.university_id,
+          universityNameEn: u.university_name_en,
+          universityNameKm: u.university_name_km,
+          universityAcronym: u.university_acronym,
+          phone: u.phone,
+          studentIdNumber: u.student_id_number,
+        });
+      }
+    } catch (err) {
+      localStorage.removeItem('campusconnect_token');
+      setToken(null);
+      setUser(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchMe = async () => {
-      const savedToken = localStorage.getItem('campusconnect_token');
-      if (!savedToken) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const res = await api.get('/auth/me');
-        if (res.data.success) {
-          const u = res.data.data;
-          setUser({
-            id: u.id,
-            email: u.email,
-            fullName: u.full_name,
-            fullNameKm: u.full_name_km,
-            role: u.role,
-            universityId: u.university_id,
-            universityNameEn: u.university_name_en,
-            universityNameKm: u.university_name_km,
-            universityAcronym: u.university_acronym,
-            phone: u.phone,
-          });
-        }
-      } catch (err) {
-        localStorage.removeItem('campusconnect_token');
-        setToken(null);
-        setUser(null);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchMe();
   }, []);
 
@@ -88,10 +92,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('campusconnect_token');
-    setToken(null);
-    setUser(null);
+  const logout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (e) {
+      // Ignore network errors on logout
+    } finally {
+      localStorage.removeItem('campusconnect_token');
+      setToken(null);
+      setUser(null);
+    }
+  };
+
+  const updateProfile = async (payload: { fullName?: string; fullNameKm?: string; phone?: string }) => {
+    const res = await api.patch('/users/me', payload);
+    if (res.data.success) {
+      await fetchMe();
+    }
+  };
+
+  const changePassword = async (payload: { currentPassword: string; newPassword: string; confirmPassword: string }) => {
+    await api.patch('/users/me/password', payload);
   };
 
   const quickLoginAs = async (role: 'admin' | 'rupp_admin' | 'rupp_organizer' | 'student') => {
@@ -108,7 +129,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, logout, quickLoginAs }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        loading,
+        login,
+        register,
+        logout,
+        updateProfile,
+        changePassword,
+        quickLoginAs,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -121,3 +154,5 @@ export const useAuth = () => {
   }
   return context;
 };
+
+export default AuthContext;

@@ -3,8 +3,11 @@
 @tailwind utilities;
 
 @layer base {
-  body {
-    @apply text-slate-800 bg-slate-50 min-h-screen flex flex-col;
+  html, body {
+    @apply text-slate-800 bg-slate-50 min-h-screen flex flex-col overflow-x-hidden max-w-full;
+  }
+  #root {
+    @apply min-h-screen flex flex-col w-full max-w-full overflow-x-hidden;
   }
 }
 

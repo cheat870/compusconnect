@@ -24,13 +24,13 @@ export const CampusesPage: React.FC<CampusesPageProps> = ({
   const { language, t } = useLanguage();
 
   return (
-    <div className="space-y-6 pb-16">
+    <div className="space-y-4 sm:space-y-6 pb-12 sm:pb-16 w-full max-w-full overflow-hidden">
       <div>
-        <h2 className="text-2xl font-black text-slate-900">{t.map.title}</h2>
-        <p className="text-xs text-slate-500 mt-1">
+        <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">{t.map.title}</h2>
+        <p className="text-xs text-slate-500 mt-1 max-w-3xl">
           {language === 'km'
-            ? 'ផែនទីផ្អែកលើទិន្នន័យ OpenStreetMap ពិតប្រាកដសម្រាប់បរិវេណសាកលវិទ្យាល័យភូមិន្ទភ្នំពេញ'
-            : 'Geographic navigation powered by OpenStreetMap data for Royal University of Phnom Penh campuses.'}
+            ? 'ផែនទីផ្អែកលើទិន្នន័យ OpenStreetMap ពិតប្រាកដសម្រាប់បរិវេណសាកលវិទ្យាល័យ និងគ្រឹះស្ថានឧត្តមសិក្សានៅកម្ពុជា'
+            : 'Geographic navigation powered by OpenStreetMap data for Cambodian universities and campuses.'}
         </p>
       </div>
 
