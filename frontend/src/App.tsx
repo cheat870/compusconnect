@@ -18,6 +18,12 @@ import MyRegistrationsPage from './pages/MyRegistrationsPage.js';
 import StudentDashboard from './pages/StudentDashboard.js';
 import OrganizerDashboard from './pages/OrganizerDashboard.js';
 import AdminDashboard from './pages/AdminDashboard.js';
+import {
+  FALLBACK_UNIVERSITIES,
+  FALLBACK_CAMPUSES,
+  FALLBACK_BUILDINGS,
+  FALLBACK_EVENTS,
+} from './data/fallbackData.js';
 
 function MainApp() {
   const { language } = useLanguage();
@@ -27,53 +33,48 @@ function MainApp() {
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [activeBuildingId, setActiveBuildingId] = useState<number | null>(null);
 
-  const [universities, setUniversities] = useState<any[]>([
-    { id: 1, acronym: 'RUPP', name_en: 'Royal University of Phnom Penh', name_km: 'សាកលវិទ្យាល័យភូមិន្ទភ្នំពេញ' }
-  ]);
+  const [universities, setUniversities] = useState<any[]>(FALLBACK_UNIVERSITIES);
   const [selectedUniversityId, setSelectedUniversityId] = useState<number>(1);
-  const [campuses, setCampuses] = useState<any[]>([]);
+  const [campuses, setCampuses] = useState<any[]>(FALLBACK_CAMPUSES);
   const [selectedCampusId, setSelectedCampusId] = useState<number>(1);
-  const [buildings, setBuildings] = useState<any[]>([]);
-  const [events, setEvents] = useState<any[]>([]);
+  const [buildings, setBuildings] = useState<any[]>(FALLBACK_BUILDINGS);
+  const [events, setEvents] = useState<any[]>(FALLBACK_EVENTS);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   // Load universities and initial data
   const loadInitialData = async () => {
     try {
-      setLoading(true);
       const uniRes = await api.get('/universities');
       let currentUniId = 1;
 
-      if (uniRes.data.success && uniRes.data.data.length > 0) {
+      if (uniRes.data?.success && uniRes.data.data?.length > 0) {
         setUniversities(uniRes.data.data);
         currentUniId = uniRes.data.data[0].id;
         setSelectedUniversityId(currentUniId);
       }
 
-      const [campusesRes, eventsRes] = await Promise.all([
+      const [campusesRes, eventsRes] = await Promise.allSettled([
         api.get(`/campuses?university_id=${currentUniId}`),
         api.get('/events?include_all=true'),
       ]);
 
-      if (campusesRes.data.success && campusesRes.data.data.length > 0) {
-        const firstCampus = campusesRes.data.data[0];
-        setCampuses(campusesRes.data.data);
+      if (campusesRes.status === 'fulfilled' && campusesRes.value.data?.success && campusesRes.value.data.data?.length > 0) {
+        const firstCampus = campusesRes.value.data.data[0];
+        setCampuses(campusesRes.value.data.data);
         setSelectedCampusId(firstCampus.id);
 
         const buildingsRes = await api.get(`/buildings?campus_id=${firstCampus.id}`);
-        if (buildingsRes.data.success) {
+        if (buildingsRes.data?.success && buildingsRes.data.data?.length > 0) {
           setBuildings(buildingsRes.data.data);
         }
       }
-      if (eventsRes.data.success) {
-        setEvents(eventsRes.data.data);
+      if (eventsRes.status === 'fulfilled' && eventsRes.value.data?.success) {
+        setEvents(eventsRes.value.data.data);
       }
     } catch (err) {
-      console.error('Initial data loading error:', err);
-    } finally {
-      setLoading(false);
+      console.warn('Backend API offline or not yet connected, using verified fallback data:', err);
     }
   };
 
@@ -85,31 +86,37 @@ function MainApp() {
   const handleSelectUniversity = async (uniId: number) => {
     setSelectedUniversityId(uniId);
     try {
-      setLoading(true);
-      const [campusesRes, eventsRes] = await Promise.all([
+      const [campusesRes, eventsRes] = await Promise.allSettled([
         api.get(`/campuses?university_id=${uniId}`),
         api.get(`/events?university_id=${uniId}&include_all=true`),
       ]);
 
-      if (campusesRes.data.success && campusesRes.data.data.length > 0) {
-        const firstCampus = campusesRes.data.data[0];
-        setCampuses(campusesRes.data.data);
+      if (campusesRes.status === 'fulfilled' && campusesRes.value.data?.success && campusesRes.value.data.data?.length > 0) {
+        const firstCampus = campusesRes.value.data.data[0];
+        setCampuses(campusesRes.value.data.data);
         setSelectedCampusId(firstCampus.id);
 
         const bRes = await api.get(`/buildings?campus_id=${firstCampus.id}`);
-        if (bRes.data.success) {
+        if (bRes.data?.success && bRes.data.data?.length > 0) {
           setBuildings(bRes.data.data);
         }
+      } else if (uniId === 1) {
+        // Fallback for RUPP
+        setCampuses(FALLBACK_CAMPUSES);
+        setSelectedCampusId(1);
+        setBuildings(FALLBACK_BUILDINGS);
       } else {
         setCampuses([]);
         setBuildings([]);
       }
 
-      if (eventsRes.data.success) {
-        setEvents(eventsRes.data.data);
+      if (eventsRes.status === 'fulfilled' && eventsRes.value.data?.success) {
+        setEvents(eventsRes.value.data.data);
+      } else if (uniId === 1) {
+        setEvents(FALLBACK_EVENTS);
       }
     } catch (err) {
-      console.error('Failed to change university:', err);
+      console.warn('Failed to load university details:', err);
     } finally {
       setLoading(false);
     }

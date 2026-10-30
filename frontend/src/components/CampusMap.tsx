@@ -198,7 +198,7 @@ export const CampusMap: React.FC<CampusMapProps> = ({
   const [userCoords, setUserCoords] = useState<UserLocation | null>(null);
   const userCoordsRef = useRef<UserLocation | null>(null);
   userCoordsRef.current = userCoords;
-  const handleGetLocationRef = useRef<(() => void) | null>(null);
+  const handleGetLocationRef = useRef<((silent?: boolean) => void) | null>(null);
   const [locationStatus, setLocationStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [locationError, setLocationError] = useState<LocationError | null>(null);
   const [isFollowingLocation, setIsFollowingLocation] = useState<boolean>(false);
@@ -246,7 +246,7 @@ export const CampusMap: React.FC<CampusMapProps> = ({
       map.on('click', (e: L.LeafletMouseEvent) => {
         const target = e.originalEvent.target as HTMLElement;
         if (!target.closest('.leaflet-popup') && !target.closest('.leaflet-marker-icon') && !target.closest('button')) {
-          handleGetLocationRef.current?.();
+          handleGetLocationRef.current?.(true);
         }
       });
 
@@ -632,7 +632,7 @@ export const CampusMap: React.FC<CampusMapProps> = ({
   }, [t.map, language]);
 
   // Handle Geolocation Errors Gracefully
-  const handleLocationError = useCallback((err: GeolocationPositionError) => {
+  const handleLocationError = useCallback((err: GeolocationPositionError, silent: boolean = false) => {
     let type: 'denied' | 'unavailable' | 'timeout' | 'general' = 'general';
     let message = t.map.locationUnavailable;
 
@@ -648,7 +648,9 @@ export const CampusMap: React.FC<CampusMapProps> = ({
     }
 
     setLocationStatus('error');
-    setLocationError({ code: err.code, message, type });
+    if (!silent) {
+      setLocationError({ code: err.code, message, type });
+    }
   }, [t.map]);
 
   // Stop Watching Location Helper
@@ -684,16 +686,20 @@ export const CampusMap: React.FC<CampusMapProps> = ({
     [language, updateUserLocationOnMap]
   );
 
-  // Request Current Location (One-time check)
-  const handleGetLocation = () => {
+  // Request Current Location (One-time check, silent=true for background/auto-locate)
+  const handleGetLocation = (silent: boolean = false) => {
     if (!navigator.geolocation) {
       setLocationStatus('error');
-      setLocationError({ type: 'unsupported', message: t.map.locationUnsupported });
+      if (!silent) {
+        setLocationError({ type: 'unsupported', message: t.map.locationUnsupported });
+      }
       return;
     }
 
     setLocationStatus('loading');
-    setLocationError(null);
+    if (!silent) {
+      setLocationError(null);
+    }
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
@@ -717,7 +723,7 @@ export const CampusMap: React.FC<CampusMapProps> = ({
         }
       },
       (err) => {
-        handleLocationError(err);
+        handleLocationError(err, silent);
       },
       {
         enableHighAccuracy: true,
@@ -729,9 +735,9 @@ export const CampusMap: React.FC<CampusMapProps> = ({
 
   handleGetLocationRef.current = handleGetLocation;
 
-  // Auto-request location immediately when CampusMap mounts/opens
+  // Auto-request location silently when CampusMap mounts/opens (silent mode: no error modal if denied)
   useEffect(() => {
-    handleGetLocation();
+    handleGetLocation(true);
   }, []);
 
   // Toggle "Follow My Location" Real-time Tracking (opt-in)
@@ -1419,7 +1425,7 @@ export const CampusMap: React.FC<CampusMapProps> = ({
                 {t.common.close}
               </button>
               <button
-                onClick={handleGetLocation}
+                onClick={() => handleGetLocation(false)}
                 className="px-3.5 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
               >
                 {language === 'km' ? 'ព្យាយាមម្តងទៀត' : 'Try Again'}
@@ -1797,7 +1803,7 @@ export const CampusMap: React.FC<CampusMapProps> = ({
 
           {/* Quick Location Button in Zoom Stack */}
           <button
-            onClick={handleGetLocation}
+            onClick={() => handleGetLocation(false)}
             disabled={locationStatus === 'loading'}
             className={`w-8 h-8 rounded-xl border flex items-center justify-center font-bold text-sm shadow-xs transition-colors ${
               userCoords
