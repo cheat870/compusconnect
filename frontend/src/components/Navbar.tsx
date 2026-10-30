@@ -80,47 +80,72 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-1.5 sm:gap-3">
-          {/* Brand Logo & Version Indicator */}
-          <div
-            onClick={() => {
-              setCurrentTab('campuses');
-              setIsMobileMenuOpen(false);
-            }}
-            className="flex items-center gap-2 sm:gap-2.5 cursor-pointer group shrink-0"
-          >
-            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-brand-700 to-brand-500 text-white flex items-center justify-center font-black text-base sm:text-lg shadow-md group-hover:scale-105 transition-transform">
-              CC
-            </div>
-            <div>
-              <div className="font-extrabold text-sm sm:text-base tracking-tight text-slate-900 flex items-center gap-1 sm:gap-1.5">
-                <span>CampusConnect</span>
-                <span className="text-[9px] sm:text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 px-1.5 py-0.2 rounded">
-                  v2.0
-                </span>
-              </div>
-              <p className="hidden xl:block text-[10px] text-slate-400 font-medium">Khmer-English Platform</p>
-            </div>
-          </div>
-
-          {/* University Selector Dropdown in Header (visible on lg+) */}
-          <div className="hidden lg:flex items-center gap-1.5 bg-slate-50 border border-slate-200 hover:border-brand-300 rounded-xl px-2.5 py-1 text-xs transition-colors shrink min-w-0">
-            <GraduationCap className="w-4 h-4 text-brand-600 shrink-0" />
-            <select
-              value={selectedUniversityId}
-              onChange={(e) => onSelectUniversity(Number(e.target.value))}
-              aria-label="Select University"
-              className="bg-transparent font-bold text-slate-800 focus:outline-none cursor-pointer max-w-[140px] xl:max-w-[240px] truncate"
+          {/* Brand Logo & University Selector Group */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <div
+              onClick={() => {
+                setCurrentTab('campuses');
+                setIsMobileMenuOpen(false);
+              }}
+              className="flex items-center gap-2 sm:gap-2.5 cursor-pointer group shrink-0"
             >
-              {universities.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.acronym} — {language === 'km' ? u.name_km : u.name_en}
-                </option>
-              ))}
-            </select>
+              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-brand-700 to-brand-500 text-white flex items-center justify-center font-black text-base sm:text-lg shadow-md group-hover:scale-105 transition-transform">
+                CC
+              </div>
+              <div>
+                <div className="font-extrabold text-sm sm:text-base tracking-tight text-slate-900 flex items-center gap-1 sm:gap-1.5">
+                  <span>CampusConnect</span>
+                  <span className="text-[9px] sm:text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 px-1.5 py-0.2 rounded">
+                    v2.0
+                  </span>
+                </div>
+                <p className="hidden 2xl:block text-[10px] text-slate-400 font-medium">Khmer-English Platform</p>
+              </div>
+            </div>
+
+            {/* University Selector (Full on xl+, Compact on lg) */}
+            <div className="hidden xl:flex items-center gap-1.5 bg-slate-50 border border-slate-200 hover:border-brand-300 rounded-xl px-2.5 py-1 text-xs transition-colors shrink-0 max-w-[200px] overflow-hidden">
+              <GraduationCap className="w-4 h-4 text-brand-600 shrink-0" />
+              <div className="relative min-w-0 flex-1">
+                <select
+                  value={selectedUniversityId}
+                  onChange={(e) => onSelectUniversity(Number(e.target.value))}
+                  aria-label="Select University"
+                  className="w-full bg-transparent font-bold text-slate-800 focus:outline-none cursor-pointer truncate appearance-none pr-4 text-xs block"
+                >
+                  {universities.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.acronym} — {language === 'km' ? u.name_km : u.name_en}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-3 h-3 text-slate-400 absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+
+            {/* Compact University Badge for lg screens (1024px - 1279px) */}
+            <div className="hidden lg:flex xl:hidden items-center gap-1 bg-slate-50 border border-slate-200 hover:border-brand-300 rounded-xl px-2 py-1 text-xs transition-colors shrink-0">
+              <GraduationCap className="w-3.5 h-3.5 text-brand-600 shrink-0" />
+              <div className="relative flex items-center">
+                <select
+                  value={selectedUniversityId}
+                  onChange={(e) => onSelectUniversity(Number(e.target.value))}
+                  aria-label="Select University"
+                  className="bg-transparent font-bold text-slate-800 focus:outline-none cursor-pointer appearance-none pr-3.5 text-xs"
+                >
+                  {universities.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.acronym}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-2.5 h-2.5 text-slate-400 absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
           </div>
 
           {/* Navigation Links (Desktop lg+) */}
-          <nav className="hidden lg:flex items-center gap-1 shrink">
+          <nav className="hidden lg:flex items-center gap-1 shrink-0">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive = currentTab === item.id;
@@ -128,7 +153,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <button
                   key={item.id}
                   onClick={() => setCurrentTab(item.id)}
-                  className={`flex items-center gap-1.5 px-2.5 xl:px-3 py-1.5 xl:py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                  className={`flex items-center gap-1.5 px-2.5 xl:px-3 py-1.5 xl:py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
                     isActive
                       ? 'bg-brand-50 text-brand-700 ring-1 ring-brand-200 shadow-xs'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
@@ -151,8 +176,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               title="Switch Language / ប្តូរភាសា"
             >
               <Globe className="w-3.5 h-3.5 text-brand-600" />
-              <span className="hidden sm:inline">{language === 'en' ? 'ភាសាខ្មែរ' : 'English'}</span>
-              <span className="sm:hidden font-bold uppercase text-[11px]">{language === 'en' ? 'ខ្មែរ' : 'EN'}</span>
+              <span className="hidden xl:inline">{language === 'en' ? 'ភាសាខ្មែរ' : 'English'}</span>
+              <span className="xl:hidden font-bold uppercase text-[11px]">{language === 'en' ? 'ខ្មែរ' : 'EN'}</span>
             </button>
 
             {/* Quick Test Persona Switcher (For Development & Evaluator Review) */}
@@ -245,7 +270,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <div className="w-6 h-6 rounded-lg bg-brand-600 text-white font-bold flex items-center justify-center text-xs">
                     {user.fullName.charAt(0)}
                   </div>
-                  <span className="text-xs font-bold text-slate-800 hidden sm:inline max-w-[120px] truncate">
+                  <span className="text-xs font-bold text-slate-800 hidden sm:inline max-w-[90px] xl:max-w-[130px] truncate">
                     {user.fullName}
                   </span>
                   <ChevronDown className="w-3 h-3 text-slate-400" />
