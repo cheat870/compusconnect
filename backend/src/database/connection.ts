@@ -24,6 +24,7 @@ export function getPool(overrideDatabase?: string): Pool {
       keepAliveInitialDelay: 10000,
       timezone: '+07:00', // Asia/Phnom_Penh (UTC+7)
       multipleStatements: true,
+      ...(config.db.ssl ? { ssl: config.db.ssl } : {}),
     });
   }
   return pool;
