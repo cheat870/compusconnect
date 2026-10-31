@@ -18,6 +18,7 @@ import MyRegistrationsPage from './pages/MyRegistrationsPage.js';
 import StudentDashboard from './pages/StudentDashboard.js';
 import OrganizerDashboard from './pages/OrganizerDashboard.js';
 import AdminDashboard from './pages/AdminDashboard.js';
+import ErrorBoundary from './components/ErrorBoundary.js';
 import {
   FALLBACK_UNIVERSITIES,
   FALLBACK_CAMPUSES,
@@ -167,7 +168,7 @@ function MainApp() {
             Initializing CampusConnect V2.0 Pilot Data...
           </div>
         ) : (
-          <>
+          <ErrorBoundary key={currentTab} onReset={() => setCurrentTab('home')}>
             {currentTab === 'home' && (
               <HomePage
                 onNavigate={setCurrentTab}
@@ -237,7 +238,7 @@ function MainApp() {
             )}
 
             {currentTab === 'admin' && <AdminDashboard />}
-          </>
+          </ErrorBoundary>
         )}
       </main>
 
