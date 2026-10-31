@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react'
 import L from 'leaflet';
 import { useLanguage } from '../i18n/context.js';
 import api from '../services/api.js';
+import { fetchClientRoute, fetchClientReverseGeocode } from '../services/clientGeo.js';
 import {
   MapPin,
   Navigation,
@@ -669,10 +670,25 @@ export const CampusMap: React.FC<CampusMapProps> = ({
           return adminData;
         }
       } catch (err) {
-        console.warn('Reverse geocoding lookup failed:', err);
-        setUserAdminAddress(null);
-        updateUserLocationOnMap(lat, lng, accuracy, false, null);
+        console.warn('Backend reverse geocoding unavailable, trying direct client lookup:', err);
       }
+
+      // Direct client fallback via OpenStreetMap Nominatim
+      try {
+        const fallbackAdmin = await fetchClientReverseGeocode(lat, lng, language);
+        if (fallbackAdmin) {
+          const adminData: AdministrativeLocation = fallbackAdmin;
+          setUserAdminAddress(adminData);
+          lastGeocodedCoordsRef.current = { lat, lng };
+          updateUserLocationOnMap(lat, lng, accuracy, false, adminData);
+          return adminData;
+        }
+      } catch (clientErr) {
+        console.warn('Direct reverse geocoding failed:', clientErr);
+      }
+
+      setUserAdminAddress(null);
+      updateUserLocationOnMap(lat, lng, accuracy, false, null);
       return null;
     },
     [language, updateUserLocationOnMap]
@@ -1016,7 +1032,7 @@ export const CampusMap: React.FC<CampusMapProps> = ({
           `/geo/directions?startLat=${startLat}&startLng=${startLng}&destLat=${destLat}&destLng=${destLng}&mode=${mode}&lang=${language}`
         );
 
-        if (res.data.success && res.data.data) {
+        if (res.data?.success && res.data?.data) {
           const d = res.data.data;
           const smartRoutes: RouteOption[] = d.routes || [];
           const activeId = 'fastest_clear';
@@ -1046,12 +1062,46 @@ export const CampusMap: React.FC<CampusMapProps> = ({
             mapInstanceRef.current?.invalidateSize();
           }, 150);
           renderRouteOnMap(newRoute);
-        } else {
-          setRoutingError(res.data.error || 'Failed to calculate route');
+          return;
         }
       } catch (err: any) {
-        console.error('Routing error:', err);
-        setRoutingError(err.message || 'Error requesting directions');
+        console.warn('Backend routing unavailable, using direct client OSRM router:', err.message);
+      }
+
+      // Client-side direct OSRM routing fallback (no network error)
+      try {
+        const d = await fetchClientRoute(startLat, startLng, destLat, destLng, mode, language);
+        const smartRoutes: RouteOption[] = d.routes || [];
+        const activeId = 'fastest_clear';
+        const activeOption = smartRoutes.find((r) => r.id === activeId) || smartRoutes[0];
+
+        const newRoute: RouteData = {
+          destinationName: destName,
+          startName,
+          distance: activeOption ? activeOption.distance : d.distance,
+          duration: activeOption ? activeOption.duration : d.duration,
+          mode,
+          trafficLevel: activeOption ? activeOption.trafficLevel : 'smooth',
+          trafficLabel: activeOption ? activeOption.trafficLabel : (language === 'km' ? 'រលូនល្អ • គ្មានការកកស្ទះ' : 'Free Flowing • No Congestion'),
+          trafficBadgeColor: activeOption ? activeOption.trafficBadgeColor : 'emerald',
+          activeRouteId: activeId,
+          routes: smartRoutes,
+          coordinates: activeOption ? activeOption.coordinates : d.coordinates,
+          steps: activeOption ? activeOption.steps : d.steps,
+          isUsingUserLocation: hasUserGps,
+          destinationLat: destLat,
+          destinationLng: destLng,
+        };
+        setRouteData(newRoute);
+        setIsRoutePanelCollapsed(false);
+        setMobileTab('map');
+        setTimeout(() => {
+          mapInstanceRef.current?.invalidateSize();
+        }, 150);
+        renderRouteOnMap(newRoute);
+      } catch (clientErr: any) {
+        console.error('Client routing error:', clientErr);
+        setRoutingError(language === 'km' ? 'មិនអាចគណនាទិសដៅផ្លូវបានទេ' : 'Unable to calculate route');
       } finally {
         setIsRoutingLoading(false);
       }
