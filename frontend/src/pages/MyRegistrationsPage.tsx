@@ -39,12 +39,23 @@ export const MyRegistrationsPage: React.FC<MyRegistrationsPageProps> = ({
       setLoading(true);
       setError(null);
       const res = await api.get('/me/registrations');
-      if (res.data.success) {
+      if (res.data?.success) {
         setRegistrations(res.data.data);
+        localStorage.setItem('campusconnect_user_registrations', JSON.stringify(res.data.data));
+        return;
       }
     } catch (err: any) {
-      console.error('Failed to load registrations:', err);
-      setError(err.response?.data?.error || 'Failed to load your event registrations');
+      console.warn('API fetch failed, reading registrations from local cache:', err);
+      const local = localStorage.getItem('campusconnect_user_registrations');
+      if (local) {
+        try {
+          setRegistrations(JSON.parse(local));
+          return;
+        } catch (e) {
+          // ignore
+        }
+      }
+      setRegistrations([]);
     } finally {
       setLoading(false);
     }

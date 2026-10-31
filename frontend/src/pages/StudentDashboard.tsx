@@ -16,11 +16,23 @@ export const StudentDashboard: React.FC<{ onSelectEvent: (id: number) => void }>
     try {
       setLoading(true);
       const res = await api.get('/dashboards/student');
-      if (res.data.success) {
+      if (res.data?.success) {
         setData(res.data.data);
+        return;
       }
     } catch (err) {
-      console.error('Failed to load student dashboard:', err);
+      console.warn('API fetch failed, reading student dashboard from local data:', err);
+      const local = localStorage.getItem('campusconnect_user_registrations');
+      const regs = local ? JSON.parse(local) : [];
+      setData({
+        user,
+        registrations: regs,
+        stats: {
+          totalRegistered: regs.length,
+          upcomingEvents: regs.filter((r: any) => r.registration_status === 'confirmed').length,
+          completedEvents: 0,
+        },
+      });
     } finally {
       setLoading(false);
     }

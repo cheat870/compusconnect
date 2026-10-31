@@ -242,14 +242,6 @@ export const CampusMap: React.FC<CampusMapProps> = ({
 
       mapInstanceRef.current = map;
 
-      // Click on map to show user location immediately if not yet located
-      map.on('click', (e: L.LeafletMouseEvent) => {
-        const target = e.originalEvent.target as HTMLElement;
-        if (!target.closest('.leaflet-popup') && !target.closest('.leaflet-marker-icon') && !target.closest('button')) {
-          handleGetLocationRef.current?.(true);
-        }
-      });
-
       // Delegated click listener for in-popup "Get Directions" buttons
       const container = mapContainerRef.current;
       const handlePopupDirectionsClick = (e: MouseEvent) => {
@@ -1361,72 +1353,49 @@ export const CampusMap: React.FC<CampusMapProps> = ({
       >
         <div ref={mapContainerRef} className="w-full h-full z-0 min-h-0" />
 
-        {/* Location Error & Permission Denial Alert Banner */}
+        {/* Location Error Alert Banner (Compact & Non-intrusive) */}
         {locationError && (
           <div
             data-testid="location-error-alert"
-            className="absolute top-4 left-4 right-4 md:right-auto md:max-w-md z-20 bg-white/95 backdrop-blur-md border border-rose-200 rounded-2xl shadow-xl p-4 text-xs text-slate-800 space-y-2.5 animate-in fade-in slide-in-from-top-2"
+            className="absolute top-3 left-3 right-3 sm:left-auto sm:right-4 sm:max-w-sm z-30 bg-white/95 backdrop-blur-md border border-rose-200 rounded-2xl shadow-xl p-3 text-xs text-slate-800 space-y-2 animate-in fade-in slide-in-from-top-2"
           >
             <div className="flex items-start justify-between gap-2">
-              <div className="flex items-start gap-2.5">
-                <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
                 <div>
-                  <h5 className="font-bold text-rose-900 text-xs leading-snug">
+                  <h5 className="font-bold text-rose-900 text-xs">
                     {locationError.type === 'denied'
                       ? (language === 'km' ? 'ការអនុញ្ញាតទីតាំងត្រូវបានបដិសេធ' : 'Location Permission Denied')
                       : locationError.type === 'timeout'
                       ? (language === 'km' ? 'ផុតកំណត់ពេលស្នើសុំទីតាំង' : 'Location Request Timed Out')
                       : (language === 'km' ? 'មិនអាចកំណត់ទីតាំងបានទេ' : 'Location Unavailable')}
                   </h5>
-                  <p className="text-slate-600 mt-1 leading-relaxed text-[11px]">
-                    {locationError.message}
+                  <p className="text-slate-600 mt-0.5 leading-snug text-[11px]">
+                    {language === 'km' 
+                      ? 'សូមបើក Location ក្នុង Settings ឬចុចប៊ូតុងខាងក្រោមដើម្បីសាកល្បង' 
+                      : 'Please enable Location in Phone Settings or tap below to retry.'}
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setLocationError(null)}
-                className="text-slate-400 hover:text-slate-600 p-1"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
                 title={t.common.close}
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {locationError.type === 'denied' && (
-              <div className="bg-amber-50/90 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-900 space-y-1.5">
-                <div className="font-bold text-amber-950 flex items-center gap-1">
-                  <span>{language === 'km' ? 'របៀបបើកការអនុញ្ញាតក្នុង Browser៖' : 'How to enable permissions in your browser:'}</span>
-                </div>
-                <ol className="list-decimal list-inside space-y-1 text-amber-800 text-[10px] leading-relaxed">
-                  <li>
-                    {language === 'km'
-                      ? 'ចុចលើរូបសោ (Lock) ឬផ្ទាំងកំណត់នៅខាងឆ្វេងនៃរបារអាសយដ្ឋាន URL'
-                      : 'Click the Lock / Permissions icon in the browser address bar.'}
-                  </li>
-                  <li>
-                    {language === 'km'
-                      ? 'ប្តូរសិទ្ធិចូលប្រើ "ទីតាំង" (Location) ទៅជា "អនុញ្ញាត" (Allow)'
-                      : 'Toggle Location permission from Blocked to "Allow".'}
-                  </li>
-                  <li>
-                    {language === 'km'
-                      ? 'ផ្ទុកទំព័រឡើងវិញ (Reload) ហើយចុចលើប៊ូតុង "ទីតាំងរបស់ខ្ញុំ" ម្តងទៀត'
-                      : 'Refresh the page and click "My Location" again.'}
-                  </li>
-                </ol>
-              </div>
-            )}
-
             <div className="flex justify-end gap-2 pt-1 border-t border-slate-100">
               <button
                 onClick={() => setLocationError(null)}
-                className="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 text-xs font-semibold rounded-xl"
+                className="px-2.5 py-1 text-slate-600 hover:bg-slate-100 text-xs font-semibold rounded-lg transition-colors"
               >
                 {t.common.close}
               </button>
               <button
                 onClick={() => handleGetLocation(false)}
-                className="px-3.5 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+                className="px-3 py-1 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors"
               >
                 {language === 'km' ? 'ព្យាយាមម្តងទៀត' : 'Try Again'}
               </button>
