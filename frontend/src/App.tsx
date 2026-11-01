@@ -54,6 +54,8 @@ function MainApp() {
         setUniversities(uniRes.data.data);
         currentUniId = uniRes.data.data[0].id;
         setSelectedUniversityId(currentUniId);
+      } else {
+        setUniversities(FALLBACK_UNIVERSITIES);
       }
 
       const [campusesRes, eventsRes] = await Promise.allSettled([
@@ -70,12 +72,29 @@ function MainApp() {
         if (buildingsRes.data?.success && buildingsRes.data.data?.length > 0) {
           setBuildings(buildingsRes.data.data);
         }
+      } else {
+        const uniCampuses = FALLBACK_CAMPUSES.filter((c) => c.university_id === currentUniId);
+        setCampuses(uniCampuses.length > 0 ? uniCampuses : FALLBACK_CAMPUSES.slice(0, 1));
+        const firstCampusId = uniCampuses.length > 0 ? uniCampuses[0].id : 1;
+        setSelectedCampusId(firstCampusId);
+        const campusBuildings = FALLBACK_BUILDINGS.filter((b) => b.campus_id === firstCampusId);
+        setBuildings(campusBuildings);
       }
+
       if (eventsRes.status === 'fulfilled' && eventsRes.value.data?.success) {
         setEvents(eventsRes.value.data.data);
+      } else {
+        const uniEvents = FALLBACK_EVENTS.filter((e) => e.university_id === currentUniId);
+        setEvents(uniEvents.length > 0 ? uniEvents : FALLBACK_EVENTS);
       }
     } catch (err) {
-      console.warn('Backend API offline or not yet connected, using verified fallback data:', err);
+      console.warn('Backend API offline, using verified fallback data:', err);
+      setUniversities(FALLBACK_UNIVERSITIES);
+      const uniCampuses = FALLBACK_CAMPUSES.filter((c) => c.university_id === 1);
+      setCampuses(uniCampuses);
+      setSelectedCampusId(1);
+      setBuildings(FALLBACK_BUILDINGS.filter((b) => b.campus_id === 1));
+      setEvents(FALLBACK_EVENTS);
     }
   };
 
@@ -101,20 +120,26 @@ function MainApp() {
         if (bRes.data?.success && bRes.data.data?.length > 0) {
           setBuildings(bRes.data.data);
         }
-      } else if (uniId === 1) {
-        // Fallback for RUPP
-        setCampuses(FALLBACK_CAMPUSES);
-        setSelectedCampusId(1);
-        setBuildings(FALLBACK_BUILDINGS);
       } else {
-        setCampuses([]);
-        setBuildings([]);
+        // Fallback for all universities (RUPP, ITC, NUM, NU, Paragon.U, RULE, CADT, etc.)
+        const uniCampuses = FALLBACK_CAMPUSES.filter((c) => c.university_id === uniId);
+        if (uniCampuses.length > 0) {
+          setCampuses(uniCampuses);
+          const firstCampusId = uniCampuses[0].id;
+          setSelectedCampusId(firstCampusId);
+          const campusBuildings = FALLBACK_BUILDINGS.filter((b) => b.campus_id === firstCampusId);
+          setBuildings(campusBuildings);
+        } else {
+          setCampuses([]);
+          setBuildings([]);
+        }
       }
 
       if (eventsRes.status === 'fulfilled' && eventsRes.value.data?.success) {
         setEvents(eventsRes.value.data.data);
-      } else if (uniId === 1) {
-        setEvents(FALLBACK_EVENTS);
+      } else {
+        const uniEvents = FALLBACK_EVENTS.filter((e) => e.university_id === uniId);
+        setEvents(uniEvents);
       }
     } catch (err) {
       console.warn('Failed to load university details:', err);
@@ -128,11 +153,16 @@ function MainApp() {
     setSelectedCampusId(campusId);
     try {
       const res = await api.get(`/buildings?campus_id=${campusId}`);
-      if (res.data.success) {
+      if (res.data?.success && res.data.data?.length > 0) {
         setBuildings(res.data.data);
+        return;
       }
     } catch (err) {
-      console.error('Failed to load campus buildings:', err);
+      console.warn('Failed to load campus buildings from API, reading fallback:', err);
+    }
+    const campusBuildings = FALLBACK_BUILDINGS.filter((b) => b.campus_id === campusId);
+    if (campusBuildings.length > 0) {
+      setBuildings(campusBuildings);
     }
   };
 

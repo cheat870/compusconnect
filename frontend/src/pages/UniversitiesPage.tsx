@@ -3,6 +3,7 @@ import { useLanguage } from '../i18n/context.js';
 import { useAuth } from '../context/AuthContext.js';
 import { api } from '../services/api.js';
 import { Building2, CheckCircle2, ExternalLink, Plus, MapPin, Search } from 'lucide-react';
+import { FALLBACK_UNIVERSITIES } from '../data/fallbackData.js';
 
 interface UniversitiesPageProps {
   onSelectUniversity?: (id: number) => void;
@@ -16,8 +17,8 @@ export const UniversitiesPage: React.FC<UniversitiesPageProps> = ({
   const { language, t } = useLanguage();
   const { user } = useAuth();
 
-  const [universities, setUniversities] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [universities, setUniversities] = useState<any[]>(FALLBACK_UNIVERSITIES);
+  const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [regionFilter, setRegionFilter] = useState<'all' | 'phnom_penh' | 'provinces'>('all');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -38,11 +39,14 @@ export const UniversitiesPage: React.FC<UniversitiesPageProps> = ({
     try {
       setLoading(true);
       const res = await api.get('/universities');
-      if (res.data.success) {
+      if (res.data.success && res.data.data?.length > 0) {
         setUniversities(res.data.data);
+      } else {
+        setUniversities(FALLBACK_UNIVERSITIES);
       }
     } catch (err) {
-      console.error('Failed to load universities:', err);
+      console.warn('Failed to load universities from API, using verified fallback:', err);
+      setUniversities(FALLBACK_UNIVERSITIES);
     } finally {
       setLoading(false);
     }

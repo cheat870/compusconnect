@@ -286,7 +286,7 @@ export const CampusMap: React.FC<CampusMapProps> = ({
         { animate: true }
       );
     }
-  }, [selectedCampusId]);
+  }, [selectedCampusId, currentCampus?.latitude, currentCampus?.longitude]);
 
   // Synchronize active building prop with local state
   useEffect(() => {

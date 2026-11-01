@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useLanguage } from '../i18n/context.js';
 import { useAuth } from '../context/AuthContext.js';
+import UniversityDropdown from './UniversityDropdown.js';
 import {
   Globe,
   Building2,
@@ -103,44 +104,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             </div>
 
-            {/* University Selector (Full on xl+, Compact on lg) */}
-            <div className="hidden xl:flex items-center gap-1.5 bg-slate-50 border border-slate-200 hover:border-brand-300 rounded-xl px-2.5 py-1 text-xs transition-colors shrink-0 max-w-[200px] overflow-hidden">
-              <GraduationCap className="w-4 h-4 text-brand-600 shrink-0" />
-              <div className="relative min-w-0 flex-1">
-                <select
-                  value={selectedUniversityId}
-                  onChange={(e) => onSelectUniversity(Number(e.target.value))}
-                  aria-label="Select University"
-                  className="w-full bg-transparent font-bold text-slate-800 focus:outline-none cursor-pointer truncate appearance-none pr-4 text-xs block"
-                >
-                  {universities.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.acronym} — {language === 'km' ? u.name_km : u.name_en}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3 h-3 text-slate-400 absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
-            </div>
-
-            {/* Compact University Badge for lg screens (1024px - 1279px) */}
-            <div className="hidden lg:flex xl:hidden items-center gap-1 bg-slate-50 border border-slate-200 hover:border-brand-300 rounded-xl px-2 py-1 text-xs transition-colors shrink-0">
-              <GraduationCap className="w-3.5 h-3.5 text-brand-600 shrink-0" />
-              <div className="relative flex items-center">
-                <select
-                  value={selectedUniversityId}
-                  onChange={(e) => onSelectUniversity(Number(e.target.value))}
-                  aria-label="Select University"
-                  className="bg-transparent font-bold text-slate-800 focus:outline-none cursor-pointer appearance-none pr-3.5 text-xs"
-                >
-                  {universities.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.acronym}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-2.5 h-2.5 text-slate-400 absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none" />
-              </div>
+            {/* Searchable University Selector Dropdown for Desktop & Laptop (lg+) */}
+            <div className="hidden lg:block shrink-0">
+              <UniversityDropdown
+                universities={universities}
+                selectedUniversityId={selectedUniversityId}
+                onSelectUniversity={onSelectUniversity}
+              />
             </div>
           </div>
 
