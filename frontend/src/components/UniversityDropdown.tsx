@@ -77,35 +77,35 @@ export const UniversityDropdown: React.FC<UniversityDropdownProps> = ({
 
   return (
     <div className="relative inline-block text-left" ref={dropdownRef}>
-      {/* Trigger Button */}
+      {/* Trigger Button - Optimized for touch on iOS and desktop click */}
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100/80 border ${
+        className={`flex items-center gap-1 sm:gap-1.5 bg-slate-50 hover:bg-slate-100/90 border ${
           isOpen ? 'border-brand-500 ring-2 ring-brand-100 bg-white' : 'border-slate-200 hover:border-brand-300'
-        } rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-800 transition-all cursor-pointer shadow-2xs select-none`}
+        } rounded-xl px-2 sm:px-2.5 py-1 sm:py-1.5 text-xs font-bold text-slate-800 transition-all cursor-pointer shadow-2xs select-none shrink-0 max-w-[140px] sm:max-w-none`}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
       >
-        <GraduationCap className="w-4 h-4 text-brand-600 shrink-0" />
-        <span className="font-extrabold text-brand-900 tracking-tight">
+        <GraduationCap className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-brand-600 shrink-0" />
+        <span className="font-black text-brand-900 tracking-tight text-[11px] sm:text-xs truncate">
           {selectedUni?.acronym || 'RUPP'}
         </span>
         {!compactOnly && (
-          <span className="hidden xl:inline text-slate-600 font-medium truncate max-w-[120px]">
+          <span className="hidden xl:inline text-slate-600 font-medium truncate max-w-[130px]">
             — {language === 'km' ? selectedUni?.name_km : selectedUni?.name_en}
           </span>
         )}
         <ChevronDown
-          className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 shrink-0 ${
+          className={`w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400 transition-transform duration-200 shrink-0 ${
             isOpen ? 'rotate-180 text-brand-600' : ''
           }`}
         />
       </button>
 
-      {/* Floating Dropdown Panel */}
+      {/* Floating Dropdown Panel (Responsive: fixed centered on iPhone, absolute on Desktop/Tablet) */}
       {isOpen && (
-        <div className="absolute left-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-slate-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
+        <div className="fixed inset-x-3 top-20 sm:absolute sm:inset-x-auto sm:left-0 sm:top-auto sm:mt-2 w-auto sm:w-96 max-w-sm sm:max-w-none bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2">
           {/* Search Header */}
           <div className="p-2.5 border-b border-slate-100 bg-slate-50/70">
             <div className="relative">
@@ -134,12 +134,12 @@ export const UniversityDropdown: React.FC<UniversityDropdownProps> = ({
             </div>
             <div className="flex items-center justify-between px-2 pt-2 text-[10px] text-slate-400 font-semibold uppercase tracking-wider">
               <span>{filteredUnis.length} {language === 'km' ? 'គ្រឹះស្ថាន' : 'Institutions'}</span>
-              <span>{language === 'km' ? 'ផ្ទៀងផ្ទាត់រួច (Verified)' : 'Verified Public'}</span>
+              <span>{language === 'km' ? 'ផ្ទៀងផ្ទាត់រួច' : 'Verified Public'}</span>
             </div>
           </div>
 
           {/* University List */}
-          <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 p-1">
+          <div className="max-h-64 sm:max-h-72 overflow-y-auto divide-y divide-slate-100 p-1">
             {filteredUnis.length === 0 ? (
               <div className="p-6 text-center text-xs text-slate-400">
                 {language === 'km' ? 'រកមិនឃើញសាកលវិទ្យាល័យនេះទេ' : 'No matching universities found'}
@@ -152,7 +152,7 @@ export const UniversityDropdown: React.FC<UniversityDropdownProps> = ({
                     key={uni.id}
                     type="button"
                     onClick={() => handleSelect(uni.id)}
-                    className={`w-full flex items-start gap-3 p-2.5 rounded-xl text-left transition-colors cursor-pointer ${
+                    className={`w-full flex items-start gap-2.5 sm:gap-3 p-2.5 rounded-xl text-left transition-colors cursor-pointer ${
                       isSelected
                         ? 'bg-brand-50/80 text-brand-950 font-semibold'
                         : 'hover:bg-slate-50 text-slate-800'

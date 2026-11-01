@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useLanguage } from '../i18n/context.js';
 import { useAuth } from '../context/AuthContext.js';
 import { X, Sparkles, ShieldCheck, Check, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { FALLBACK_UNIVERSITIES } from '../data/fallbackData.js';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -181,8 +182,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMo
                   onChange={(e) => setUniversityId(Number(e.target.value))}
                   className="w-full mt-1 p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 cursor-pointer"
                 >
-                  <option value={1}>Royal University of Phnom Penh (RUPP)</option>
-                  <option value={2}>Institute of Technology of Cambodia (ITC)</option>
+                  {FALLBACK_UNIVERSITIES.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.acronym} — {language === 'km' ? u.name_km : u.name_en}
+                    </option>
+                  ))}
                 </select>
               </div>
             </>

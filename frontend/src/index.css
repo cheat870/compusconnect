@@ -5,17 +5,31 @@
 @layer base {
   html, body {
     @apply text-slate-800 bg-slate-50 min-h-screen flex flex-col overflow-x-hidden max-w-full;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
   }
+
   #root {
     @apply min-h-screen flex flex-col w-full max-w-full overflow-x-hidden;
+    padding-left: env(safe-area-inset-left, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
   }
 }
 
 /* Custom leaflet map popup styling */
 .leaflet-popup-content-wrapper {
-  @apply rounded-xl shadow-xl p-0 overflow-hidden border border-slate-200;
+  @apply rounded-2xl shadow-xl p-0 overflow-hidden border border-slate-200;
 }
 .leaflet-popup-content {
   margin: 0 !important;
   line-height: 1.5;
+}
+
+/* Hide scrollbars while allowing smooth scrolling on mobile tabs */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

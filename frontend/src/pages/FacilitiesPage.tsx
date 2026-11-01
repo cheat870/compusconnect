@@ -73,8 +73,8 @@ export const FacilitiesPage: React.FC<FacilitiesPageProps> = ({
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
         </div>
 
-        {/* Categories */}
-        <div className="flex flex-wrap gap-1.5 items-center">
+        {/* Categories (Smooth horizontal scroll on mobile, wrap on tablet/desktop) */}
+        <div className="flex gap-1.5 items-center overflow-x-auto pb-1 no-scrollbar flex-nowrap sm:flex-wrap">
           {[
             { id: 'all', label: t.map.allCategories },
             { id: 'academic', label: t.map.academic },

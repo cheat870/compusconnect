@@ -149,8 +149,8 @@ export const UniversitiesPage: React.FC<UniversitiesPageProps> = ({
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
         </div>
 
-        {/* Region Filter Buttons */}
-        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs shrink-0 self-start sm:self-auto">
+        {/* Region Filter Buttons (Scrollable on mobile) */}
+        <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs shrink-0 self-start sm:self-auto overflow-x-auto no-scrollbar max-w-full">
           <button
             onClick={() => setRegionFilter('all')}
             className={`px-3 py-1.5 rounded-lg font-bold transition-all ${

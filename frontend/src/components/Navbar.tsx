@@ -69,31 +69,31 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs">
-      {/* Top institution pilot banner */}
-      <div className="bg-gradient-to-r from-blue-950 via-blue-900 to-indigo-950 text-white text-[11px] py-1.5 px-4 text-center font-medium flex items-center justify-center gap-2">
-        <span className="bg-amber-400 text-slate-950 font-black px-1.5 py-0.2 rounded text-[10px] tracking-wide uppercase">
+      {/* Top institution pilot banner (responsive text & truncation for all phones) */}
+      <div className="bg-gradient-to-r from-blue-950 via-blue-900 to-indigo-950 text-white text-[10px] sm:text-[11px] py-1 sm:py-1.5 px-2 sm:px-4 text-center font-medium flex items-center justify-center gap-1.5 sm:gap-2 overflow-hidden">
+        <span className="bg-amber-400 text-slate-950 font-black px-1.5 py-0.2 rounded text-[9px] sm:text-[10px] tracking-wide uppercase shrink-0">
           {selectedUni?.acronym === 'RUPP' ? 'RUPP Pilot V2.0' : `${selectedUni?.acronym || 'CC'} V2.0`}
         </span>
-        <span className="truncate">
-          {selectedUni ? (language === 'km' ? `${selectedUni.name_km} (${selectedUni.name_en})` : `${selectedUni.name_en} (${selectedUni.name_km})`) : 'Royal University of Phnom Penh (សាកលវិទ្យាល័យភូមិន្ទភ្នំពេញ)'} — Multi-Institution Platform
+        <span className="truncate max-w-[80vw] sm:max-w-none">
+          {selectedUni ? (language === 'km' ? `${selectedUni.name_km} (${selectedUni.name_en})` : `${selectedUni.name_en} (${selectedUni.name_km})`) : 'Royal University of Phnom Penh'}
         </span>
       </div>
 
       <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-1.5 sm:gap-3">
           {/* Brand Logo & University Selector Group */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             <div
               onClick={() => {
                 setCurrentTab('campuses');
                 setIsMobileMenuOpen(false);
               }}
-              className="flex items-center gap-2 sm:gap-2.5 cursor-pointer group shrink-0"
+              className="flex items-center gap-1.5 sm:gap-2.5 cursor-pointer group shrink-0"
             >
-              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-brand-700 to-brand-500 text-white flex items-center justify-center font-black text-base sm:text-lg shadow-md group-hover:scale-105 transition-transform">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-brand-700 to-brand-500 text-white flex items-center justify-center font-black text-sm sm:text-lg shadow-md group-hover:scale-105 transition-transform shrink-0">
                 CC
               </div>
-              <div>
+              <div className="hidden sm:block">
                 <div className="font-extrabold text-sm sm:text-base tracking-tight text-slate-900 flex items-center gap-1 sm:gap-1.5">
                   <span>CampusConnect</span>
                   <span className="text-[9px] sm:text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 px-1.5 py-0.2 rounded">
@@ -104,8 +104,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             </div>
 
-            {/* Searchable University Selector Dropdown for Desktop & Laptop (lg+) */}
-            <div className="hidden lg:block shrink-0">
+            {/* University Selector Dropdown - Visible on iPhone, iPad & Desktop */}
+            <div className="shrink-0">
               <UniversityDropdown
                 universities={universities}
                 selectedUniversityId={selectedUniversityId}

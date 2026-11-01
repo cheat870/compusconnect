@@ -43,8 +43,8 @@ export const EventsPage: React.FC<EventsPageProps> = ({ events, onSelectEvent, o
           <p className="text-xs text-slate-500 mt-1">{t.events.subtitle}</p>
         </div>
 
-        {/* Tab switchers */}
-        <div className="flex flex-wrap gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold">
+        {/* Tab switchers (Scrollable on mobile, wrap on tablet/desktop) */}
+        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl text-xs font-semibold overflow-x-auto no-scrollbar flex-nowrap sm:flex-wrap">
           <button
             onClick={() => setActiveTab('upcoming')}
             className={`px-3 py-1.5 rounded-lg transition-all ${

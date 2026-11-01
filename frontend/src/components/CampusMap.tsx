@@ -192,6 +192,7 @@ export const CampusMap: React.FC<CampusMapProps> = ({
   const [selectedRouteMode, setSelectedRouteMode] = useState<'foot' | 'car'>('car');
   const [showTurnByTurn, setShowTurnByTurn] = useState<boolean>(false);
   const [isRoutePanelCollapsed, setIsRoutePanelCollapsed] = useState<boolean>(false);
+  const [isLegendOpen, setIsLegendOpen] = useState<boolean>(false);
   const activeDestinationRef = useRef<{ lat: number; lng: number; name: string } | null>(null);
   const startInAppRoutingRef = useRef<((destLat: number, destLng: number, destName: string, mode?: 'foot' | 'car') => Promise<void>) | null>(null);
 
@@ -1481,20 +1482,15 @@ export const CampusMap: React.FC<CampusMapProps> = ({
         {routeData && (
           isRoutePanelCollapsed ? (
             /* Collapsed / Minimized Pill */
-            <div className="absolute top-4 left-4 z-30 max-w-sm sm:max-w-md w-[calc(100%-2rem)] sm:w-auto bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-blue-200 p-2 sm:p-2.5 flex items-center justify-between gap-3 pointer-events-auto transition-all animate-in fade-in slide-in-from-top-2">
-              <button
-                type="button"
-                onClick={() => setIsRoutePanelCollapsed(false)}
-                className="flex items-center gap-2.5 text-left flex-1 min-w-0 group cursor-pointer"
-                title={t.map.expandRoute}
-              >
-                <div className="relative w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white shrink-0 shadow-sm group-hover:scale-105 transition-transform">
-                  <Route className="w-4 h-4" />
-                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-400 ring-2 ring-white animate-pulse" />
+            <div className="absolute top-4 left-4 z-30 max-w-sm sm:max-w-md w-[calc(100%-2rem)] sm:w-auto bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-blue-200 p-2 sm:p-2.5 flex items-center justify-between gap-2.5 pointer-events-auto transition-all animate-in fade-in slide-in-from-top-2">
+              <div className="flex items-center gap-2 text-left flex-1 min-w-0">
+                <div className="relative w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white shrink-0 shadow-sm">
+                  <Route className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-white animate-pulse" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="font-extrabold text-xs text-slate-900 truncate max-w-[140px] sm:max-w-[200px]">
+                    <span className="font-extrabold text-xs text-slate-900 truncate max-w-[120px] sm:max-w-[180px]">
                       {routeData.destinationName}
                     </span>
                     <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 border border-emerald-200 px-1.5 py-0.2 rounded-md shrink-0">
@@ -1504,28 +1500,23 @@ export const CampusMap: React.FC<CampusMapProps> = ({
                       {Math.ceil(routeData.duration / 60)} {language === 'km' ? 'នាទី' : 'min'}
                     </span>
                   </div>
-                  <p className="text-[10px] text-blue-600 font-semibold group-hover:underline flex items-center gap-1 mt-0.5">
-                    <Maximize2 className="w-3 h-3 inline" />
-                    <span>{t.map.expandRoute}</span>
-                  </p>
                 </div>
-              </button>
+              </div>
 
               <div className="flex items-center gap-1 border-l border-slate-200 pl-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => setIsRoutePanelCollapsed(false)}
-                  className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                  className="px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer"
                   title={t.map.expandRoute}
-                  aria-label={t.map.expandRoute}
                 >
-                  <Maximize2 className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">{t.map.showPanel}</span>
+                  <Maximize2 className="w-3 h-3" />
+                  <span>{t.map.showPanel}</span>
                 </button>
                 <button
                   type="button"
                   onClick={clearRoute}
-                  className="p-1.5 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                  className="p-1 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
                   title={t.map.clearRoute}
                   aria-label={t.map.clearRoute}
                 >
@@ -1839,37 +1830,66 @@ export const CampusMap: React.FC<CampusMapProps> = ({
           </button>
         </div>
 
-        {/* Floating Map Legend Card */}
-        <div className="absolute bottom-4 right-4 z-10 bg-white/95 backdrop-blur-md p-3.5 rounded-2xl shadow-xl border border-slate-200 text-[11px] space-y-1.5 pointer-events-auto">
-          <div className="font-extrabold text-slate-900 text-xs mb-1 flex items-center gap-1.5">
-            <Layers className="w-3.5 h-3.5 text-brand-600" />
-            <span className="truncate max-w-[200px]">
-              {language === 'km' ? 'ទីតាំងអគារ និងការរុករក' : 'Campus Facilities & Navigation'}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 text-slate-600">
-            <span className="w-3 h-3 rounded-md bg-purple-600"></span> {t.map.cooperationCenter}
-          </div>
-          <div className="flex items-center gap-2 text-slate-600">
-            <span className="w-3 h-3 rounded-md bg-emerald-600"></span> {t.map.library}
-          </div>
-          <div className="flex items-center gap-2 text-slate-600">
-            <span className="w-3 h-3 rounded-md bg-amber-600"></span> {t.map.lab}
-          </div>
-          <div className="flex items-center gap-2 text-slate-600">
-            <span className="w-3 h-3 rounded-md bg-teal-700"></span> {language === 'km' ? 'រដ្ឋបាល' : 'Administration'}
-          </div>
-          <div className="flex items-center gap-2 text-slate-600">
-            <span className="w-3 h-3 rounded-md bg-slate-600"></span> {language === 'km' ? 'ចំណតយានយន្ត' : 'Parking Zones'}
-          </div>
-          <div className="flex items-center gap-2 text-slate-600">
-            <span className="w-3 h-3 rounded-full bg-rose-600"></span> {language === 'km' ? 'ព្រឹត្តិការណ៍បរិវេណ' : 'Campus Events'}
-          </div>
-          {userCoords && (
-            <div className="flex items-center gap-2 text-blue-700 font-bold pt-1 border-t border-slate-100">
-              <span className="w-3 h-3 rounded-full bg-blue-600 ring-2 ring-blue-300"></span> {t.map.myLocation} (±{Math.round(userCoords.accuracy)}m)
-            </div>
+        {/* Floating Map Legend Card (Collapsible on mobile, persistent on desktop) */}
+        <div className="absolute bottom-4 right-4 z-10 pointer-events-auto">
+          {!isLegendOpen && (
+            <button
+              type="button"
+              onClick={() => setIsLegendOpen(true)}
+              className="md:hidden flex items-center gap-1.5 px-3 py-1.5 bg-white/95 backdrop-blur-md rounded-xl shadow-lg border border-slate-200 text-xs font-bold text-slate-800 hover:bg-white cursor-pointer"
+            >
+              <Layers className="w-3.5 h-3.5 text-brand-600" />
+              <span>{language === 'km' ? 'កំណត់សម្គាល់' : 'Legend'}</span>
+            </button>
           )}
+
+          <div className={`${!isLegendOpen ? 'hidden md:block' : 'block'} bg-white/95 backdrop-blur-md p-3 sm:p-3.5 rounded-2xl shadow-xl border border-slate-200 text-[11px] space-y-1.5 max-w-[240px]`}>
+            <div className="font-extrabold text-slate-900 text-xs mb-1 flex items-center justify-between gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-brand-600" />
+                <span className="truncate max-w-[170px]">
+                  {language === 'km' ? 'ទីតាំងអគារ និងការរុករក' : 'Campus Facilities'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsLegendOpen(false)}
+                className="md:hidden text-slate-400 hover:text-slate-600 p-0.5"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex items-center gap-2 text-slate-600">
+              <span className="w-3 h-3 rounded-md bg-purple-600 shrink-0"></span>
+              <span className="truncate">{t.map.cooperationCenter}</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-600">
+              <span className="w-3 h-3 rounded-md bg-emerald-600 shrink-0"></span>
+              <span className="truncate">{t.map.library}</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-600">
+              <span className="w-3 h-3 rounded-md bg-amber-600 shrink-0"></span>
+              <span className="truncate">{t.map.lab}</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-600">
+              <span className="w-3 h-3 rounded-md bg-teal-700 shrink-0"></span>
+              <span className="truncate">{language === 'km' ? 'រដ្ឋបាល' : 'Administration'}</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-600">
+              <span className="w-3 h-3 rounded-md bg-slate-600 shrink-0"></span>
+              <span className="truncate">{language === 'km' ? 'ចំណតយានយន្ត' : 'Parking Zones'}</span>
+            </div>
+            <div className="flex items-center gap-2 text-slate-600">
+              <span className="w-3 h-3 rounded-full bg-rose-600 shrink-0"></span>
+              <span className="truncate">{language === 'km' ? 'ព្រឹត្តិការណ៍បរិវេណ' : 'Campus Events'}</span>
+            </div>
+            {userCoords && (
+              <div className="flex items-center gap-2 text-blue-700 font-bold pt-1 border-t border-slate-100">
+                <span className="w-3 h-3 rounded-full bg-blue-600 ring-2 ring-blue-300 shrink-0"></span>
+                <span className="truncate">{t.map.myLocation} (±{Math.round(userCoords.accuracy)}m)</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
