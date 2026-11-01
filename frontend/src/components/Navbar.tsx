@@ -108,7 +108,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const selectedUni = universities.find((u) => u.id === selectedUniversityId) || universities[0];
 
   return (
-    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs w-full max-w-full overflow-hidden">
+    <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs w-full max-w-full">
       {/* Top institution pilot banner (responsive text & truncation for all phones) */}
       <div className="bg-gradient-to-r from-blue-950 via-blue-900 to-indigo-950 text-white text-[10px] sm:text-[11px] py-1 sm:py-1.5 px-2 sm:px-4 text-center font-medium flex items-center justify-center gap-1.5 sm:gap-2 overflow-hidden w-full">
         <span className="bg-amber-400 text-slate-950 font-black px-1.5 py-0.2 rounded text-[9px] sm:text-[10px] tracking-wide uppercase shrink-0">
@@ -124,7 +124,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </span>
       </div>
 
-      <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-6 xl:px-8 w-full overflow-hidden">
+      <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-6 xl:px-8 w-full">
         <div className="flex items-center justify-between h-16 gap-1 sm:gap-2 xl:gap-3 w-full">
           {/* Brand Logo & University Selector Group */}
           <div className="flex items-center gap-1 sm:gap-2 xl:gap-3 shrink-0 min-w-0">
