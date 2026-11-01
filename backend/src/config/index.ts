@@ -33,8 +33,15 @@ export const config = {
     name: process.env.NODE_ENV === 'test' 
       ? (process.env.DB_TEST_NAME || 'campusconnect_test') 
       : (dbUrlConfig?.name || process.env.DB_NAME || 'campusconnect'),
-    ssl: (process.env.DB_SSL === 'true' || !!dbUrlConfig?.ssl || (process.env.NODE_ENV === 'production' && (process.env.DB_HOST && process.env.DB_HOST !== 'localhost' && process.env.DB_HOST !== '127.0.0.1')))
-      ? { rejectUnauthorized: false }
+    ssl: (
+      process.env.DB_SSL === 'true' ||
+      !!dbUrlConfig?.ssl ||
+      process.env.DB_PORT === '4000' ||
+      (process.env.DB_HOST && process.env.DB_HOST.includes('tidbcloud.com')) ||
+      (dbUrlConfig?.host && dbUrlConfig.host.includes('tidbcloud.com')) ||
+      (process.env.NODE_ENV === 'production' && (process.env.DB_HOST && process.env.DB_HOST !== 'localhost' && process.env.DB_HOST !== '127.0.0.1'))
+    )
+      ? { minVersion: 'TLSv1.2', rejectUnauthorized: false }
       : undefined,
   },
   jwt: {

@@ -627,6 +627,11 @@ export const CampusMap: React.FC<CampusMapProps> = ({
 
   // Handle Geolocation Errors Gracefully
   const handleLocationError = useCallback((err: GeolocationPositionError, silent: boolean = false) => {
+    if (silent) {
+      setLocationStatus('idle');
+      return;
+    }
+
     let type: 'denied' | 'unavailable' | 'timeout' | 'general' = 'general';
     let message = t.map.locationUnavailable;
 
@@ -642,9 +647,7 @@ export const CampusMap: React.FC<CampusMapProps> = ({
     }
 
     setLocationStatus('error');
-    if (!silent) {
-      setLocationError({ code: err.code, message, type });
-    }
+    setLocationError({ code: err.code, message, type });
   }, [t.map]);
 
   // Stop Watching Location Helper
@@ -698,15 +701,15 @@ export const CampusMap: React.FC<CampusMapProps> = ({
   // Request Current Location (One-time check, silent=true for background/auto-locate)
   const handleGetLocation = (silent: boolean = false) => {
     if (!navigator.geolocation) {
-      setLocationStatus('error');
       if (!silent) {
+        setLocationStatus('error');
         setLocationError({ type: 'unsupported', message: t.map.locationUnsupported });
       }
       return;
     }
 
-    setLocationStatus('loading');
     if (!silent) {
+      setLocationStatus('loading');
       setLocationError(null);
     }
 
@@ -743,11 +746,6 @@ export const CampusMap: React.FC<CampusMapProps> = ({
   };
 
   handleGetLocationRef.current = handleGetLocation;
-
-  // Auto-request location silently when CampusMap mounts/opens (silent mode: no error modal if denied)
-  useEffect(() => {
-    handleGetLocation(true);
-  }, []);
 
   // Toggle "Follow My Location" Real-time Tracking (opt-in)
   const toggleFollowLocation = () => {
@@ -1423,14 +1421,14 @@ export const CampusMap: React.FC<CampusMapProps> = ({
                   </h5>
                   <p className="text-slate-600 mt-0.5 leading-snug text-[11px]">
                     {language === 'km' 
-                      ? 'សូមបើក Location ក្នុង Settings ឬចុចប៊ូតុងខាងក្រោមដើម្បីសាកល្បង' 
-                      : 'Please enable Location in Phone Settings or tap below to retry.'}
+                      ? 'សម្រាប់ទូរស័ព្ទ iPhone: ចុចលើរូប "aA" នៅរបារអាសយដ្ឋាន (URL) > Website Settings > Location > Allow' 
+                      : 'For iPhone Safari: Tap "aA" in address bar > Website Settings > Location > Allow.'}
                   </p>
                 </div>
               </div>
               <button
                 onClick={() => setLocationError(null)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
                 title={t.common.close}
               >
                 <X className="w-4 h-4" />
@@ -1440,13 +1438,13 @@ export const CampusMap: React.FC<CampusMapProps> = ({
             <div className="flex justify-end gap-2 pt-1 border-t border-slate-100">
               <button
                 onClick={() => setLocationError(null)}
-                className="px-2.5 py-1 text-slate-600 hover:bg-slate-100 text-xs font-semibold rounded-lg transition-colors"
+                className="px-2.5 py-1 text-slate-600 hover:bg-slate-100 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
               >
                 {t.common.close}
               </button>
               <button
                 onClick={() => handleGetLocation(false)}
-                className="px-3 py-1 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors"
+                className="px-3 py-1 bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold rounded-lg shadow-xs transition-colors cursor-pointer"
               >
                 {language === 'km' ? 'ព្យាយាមម្តងទៀត' : 'Try Again'}
               </button>

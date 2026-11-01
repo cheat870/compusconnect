@@ -70,7 +70,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMo
       }
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.error || (mode === 'login' ? 'Invalid email or password' : 'Registration failed'));
+      setError(
+        err.response?.data?.error ||
+        err.message ||
+        (mode === 'login'
+          ? (language === 'km' ? 'អ៊ីមែល ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវ' : 'Invalid email or password')
+          : (language === 'km' ? 'ការចុះឈ្មោះមិនជោគជ័យ' : 'Registration failed'))
+      );
     } finally {
       setLoading(false);
     }

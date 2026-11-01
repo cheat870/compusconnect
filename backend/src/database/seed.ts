@@ -14,6 +14,7 @@ export async function runSeeds(dbName?: string): Promise<void> {
 
   try {
     if (targetDb) {
+      await conn.query(`CREATE DATABASE IF NOT EXISTS \`${targetDb}\`;`);
       await conn.query(`USE \`${targetDb}\`;`);
     }
 
